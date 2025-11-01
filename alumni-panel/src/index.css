@@ -1,0 +1,94 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.hero-section {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 60px 0;
+}
+
+.card {
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1) !important;
+}
+
+.shadow-sm {
+  box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+.shadow {
+  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+.shadow-lg {
+  box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.175);
+}
+
+.badge {
+  padding: 0.35em 0.65em;
+  font-weight: 600;
+}
+
+.btn {
+  transition: all 0.3s ease;
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+}
+
+/* Profile page sizing */
+.profile-page {
+  min-height: calc(100vh - 70px);
+  display: flex;
+}
+.profile-main-card {
+  min-height: 640px;
+}
+
+/* Simple modal for header editing */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1050;
+}
+.modal-card {
+  width: 100%;
+  max-width: 680px;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+}
+
+/* Quick links */
+.quick-links .list-group-item { cursor: pointer; border: 0; padding: 10px 12px; border-radius: 8px; margin-bottom: 4px; }
+.quick-links .list-group-item.active { background: #eef5ff; color: #0b5ed7; font-weight: 600; }
+.quick-links .list-group-item:hover { background: #f6f7f9; }
+
+/* Profile tabs */
+.tabs-container { display: flex; }
+.tab-btn { flex: 1; padding: 12px; background: #fff; border: none; cursor: pointer; font-weight: 600; font-size: 14px; color: #666; border-bottom: 3px solid transparent; }
+.tab-btn.active { color: #4CAF50; border-bottom: 3px solid #4CAF50; }
+.tab-btn:hover { color: #4CAF50; }
+
+/* Profile layout */
+.main-content-profile { max-width: 100%; }
+.sidebar-quick-links { min-height: 400px; }
+.content-area-profile .card { min-height: auto; width: 100%; }

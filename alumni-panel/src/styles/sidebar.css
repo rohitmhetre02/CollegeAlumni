@@ -1,0 +1,57 @@
+/* Sidebar Styles */
+.sidebar {
+  width: 250px;
+  min-height: 100vh;
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1100; /* above topbar */
+  transition: transform 0.3s ease;
+  background: #181f26; /* ensure full background */
+  /* remove any top border or shadow if present */
+  box-shadow: none;
+  border-top: none;
+}
+
+.sidebar .nav-link {
+  transition: all 0.3s ease;
+  border-radius: 5px;
+  margin-bottom: 5px;
+}
+
+.sidebar .nav-link:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  transform: translateX(5px);
+}
+
+.sidebar .nav-link.active {
+  background-color: #0d6efd;
+  font-weight: bold;
+}
+
+/* Mobile Responsive */
+@media (max-width: 991px) {
+  .sidebar {
+    position: fixed;
+    left: -250px;
+    transform: translateX(0);
+  }
+  
+  .sidebar.show {
+    transform: translateX(250px);
+  }
+}
+
+/* Main Content */
+.sidebar-main-content {
+  margin-left: 250px;
+  transition: margin-left 0.3s ease;
+  padding-top: 56px;
+}
+
+@media (max-width: 991px) {
+  .sidebar-main-content {
+    margin-left: 0;
+  }
+}
+

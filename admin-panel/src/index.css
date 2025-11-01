@@ -1,0 +1,43 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.shadow {
+  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+.shadow-lg {
+  box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.175);
+}
+
+.btn {
+  transition: all 0.3s ease;
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+}
+
+/* Profile page sizing */
+.profile-page {
+  min-height: calc(100vh - 70px);
+  display: flex;
+}
+.profile-main-card {
+  height: 720px; /* fixed height for consistent layout */
+}
+
+/* Center the profile content and cap width */
+.profile-wrapper {
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
