@@ -128,10 +128,11 @@ const userSchema = new mongoose.Schema({
   approvalStatus: {
     type: String,
     enum: ['pending', 'approved', 'rejected'],
-    default: function() {
-      // Students and alumni start as pending, others are approved
+    default: function () {
+      if (!this || !this.role) return 'approved';   // safe fallback
       return (this.role === 'student' || this.role === 'alumni') ? 'pending' : 'approved';
     }
+    
   },
   approvedBy: {
     type: mongoose.Schema.Types.ObjectId,
@@ -139,7 +140,11 @@ const userSchema = new mongoose.Schema({
   },
   approvedAt: {
     type: Date
-  }
+  },
+  savedJobs: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Job'
+  }]
 }, {
   timestamps: true
 });

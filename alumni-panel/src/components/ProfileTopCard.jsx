@@ -32,9 +32,23 @@ const ProfileTopCard = ({
   profession = '',
   company = '',
   headline = '',
+  roleLabel = '',
+  department = '',
+  facultyId = '',
+  workExperience = '',
 }) => {
   const circumference = 2 * Math.PI * 54;
   const dashoffset = circumference * (1 - progress / 100);
+  const experienceText = (() => {
+    if (workExperience === null || workExperience === undefined || workExperience === '') return '';
+    if (typeof workExperience === 'object') {
+      const numeric = workExperience.value ?? workExperience.amount ?? workExperience.years ?? workExperience.total ?? '';
+      if (numeric === '' || numeric === null || numeric === undefined) return '';
+      const unit = workExperience.unit || workExperience.units || workExperience.label || 'yrs';
+      return `${numeric} ${unit}`.trim();
+    }
+    return workExperience;
+  })();
   return (
     <div style={styles.card}>
       <div style={styles.profileImageWrapper}>
@@ -65,6 +79,16 @@ const ProfileTopCard = ({
         <p style={styles.degree}>{degree}</p>
         {college && <p style={styles.college}>{college}</p>}
         <div style={styles.divider} />
+        {(roleLabel || department || facultyId || experienceText) && (
+          <div style={styles.metadataRow}>
+            {roleLabel && <span style={styles.metadataPill}>Role: {roleLabel}</span>}
+            {department && <span style={styles.metadataPill}>Department: {department}</span>}
+            {facultyId && <span style={styles.metadataPill}>Faculty ID: {facultyId}</span>}
+            {experienceText && (
+              <span style={styles.metadataPill}>Experience: {experienceText}</span>
+            )}
+          </div>
+        )}
         <div style={styles.detailsRow}>
           <div style={styles.leftDetails}>
             <div style={styles.detailItem}><Icon path={icons.map} /><span>{location}</span></div>
@@ -95,6 +119,8 @@ const styles = {
   degree: { margin: 0, fontWeight: 600, fontSize: 14, color: '#404040' },
   college: { margin: '6px 0 12px 0', fontWeight: 400, fontSize: 14, color: '#505050' },
   divider: { borderBottom: '1px solid #e0e0e0', margin: '8px 0 20px 0' },
+  metadataRow: { display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
+  metadataPill: { background: '#f1f5f9', color: '#2563eb', padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, letterSpacing: '0.3px' },
   detailsRow: { display: 'flex', gap: 50, fontSize: 14, color: '#555' },
   leftDetails: { display: 'flex', flexDirection: 'column', gap: 12, minWidth: 150 },
   rightDetails: { display: 'flex', flexDirection: 'column', gap: 12, minWidth: 200 },

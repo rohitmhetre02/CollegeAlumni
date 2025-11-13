@@ -31,6 +31,7 @@ router.get('/:id', auth, async (req, res) => {
     const job = await Job.findById(req.params.id)
       .populate('postedBy', 'name email department profilePicture')
       .populate('applications.student', 'name email enrollmentNumber department')
+      .populate('referralRequests.requestedBy', 'name email profilePicture role enrollmentNumber department')
       .populate('reviews.user', 'name profilePicture')
       .populate('faqs.askedBy', 'name')
       .populate('faqs.answeredBy', 'name')
@@ -187,6 +188,74 @@ router.post('/:id/discussions/:discussionId/replies', auth, async (req, res) => 
     await job.save();
     await job.populate('discussions.user', 'name profilePicture');
     await job.populate('discussions.replies.user', 'name profilePicture');
+    res.json(job);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Save/Unsave job
+router.post('/:id/save', auth, async (req, res) => {
+  try {
+    const User = (await import('../models/User.js')).default;
+    const user = await User.findById(req.user.userId);
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const job = await Job.findById(req.params.id);
+    if (!job) {
+      return res.status(404).json({ message: 'Job not found' });
+    }
+
+    const jobId = job._id;
+    const jobIndex = user.savedJobs.findIndex(savedJobId => savedJobId.toString() === jobId.toString());
+
+    if (jobIndex > -1) {
+      // Unsave
+      user.savedJobs.splice(jobIndex, 1);
+      await user.save();
+      res.json({ message: 'Job unsaved', saved: false });
+    } else {
+      // Save
+      user.savedJobs.push(jobId);
+      await user.save();
+      res.json({ message: 'Job saved', saved: true });
+    }
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Submit referral request
+router.post('/:id/referral', auth, async (req, res) => {
+  try {
+    const job = await Job.findById(req.params.id);
+    
+    if (!job) {
+      return res.status(404).json({ message: 'Job not found' });
+    }
+
+    // Check if already requested
+    const alreadyRequested = job.referralRequests.some(
+      req => req.requestedBy.toString() === req.user.userId
+    );
+
+    if (alreadyRequested) {
+      return res.status(400).json({ message: 'You have already sent a referral request for this job' });
+    }
+
+    job.referralRequests.push({
+      requestedBy: req.user.userId,
+      resumeUrl: req.body.resumeUrl,
+      coverLetter: req.body.coverLetter || '',
+      status: 'pending'
+    });
+
+    await job.save();
+    await job.populate('referralRequests.requestedBy', 'name email profilePicture role enrollmentNumber department');
+
     res.json(job);
   } catch (error) {
     res.status(500).json({ message: error.message });

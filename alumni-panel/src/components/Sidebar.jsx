@@ -16,7 +16,7 @@ const Sidebar = () => {
   const isBlocked = (user?.approvalStatus === 'pending' || user?.approvalStatus === 'rejected') && (user.role === 'student' || user.role === 'alumni');
 
   // Student menu items
-  if (user.role === 'student') {
+  if (user?.role === 'student') {
     menuItems.push(
       { path: '/student/dashboard', icon: 'bi-speedometer2', label: 'Dashboard', disabled: false },
       { path: '/my-activity', icon: 'bi-clipboard-data', label: 'My Activity', disabled: isBlocked },
@@ -26,12 +26,14 @@ const Sidebar = () => {
       { path: '/jobs-directory', icon: 'bi-briefcase', label: 'Job Opportunity', disabled: isBlocked },
       { path: '/mentorships-directory', icon: 'bi-person-heart', label: 'Mentorship', disabled: isBlocked },
       { path: '/news', icon: 'bi-newspaper', label: 'News', disabled: isBlocked },
-      { path: '/events-directory', icon: 'bi-calendar-event', label: 'Event', disabled: isBlocked }
+      { path: '/events-directory', icon: 'bi-calendar-event', label: 'Event', disabled: isBlocked },
+      { path: '/gallery', icon: 'bi-images', label: 'Gallery', disabled: isBlocked },
+      { path: '/messages', icon: 'bi-chat-dots', label: 'Messages', disabled: isBlocked }
     );
   }
 
   // Alumni menu items
-  if (user.role === 'alumni') {
+  if (user?.role === 'alumni') {
     menuItems.push(
       { path: '/alumni/dashboard', icon: 'bi-speedometer2', label: 'Dashboard', disabled: false },
       { path: '/my-activity', icon: 'bi-clipboard-data', label: 'My Activity', disabled: isBlocked },
@@ -41,7 +43,43 @@ const Sidebar = () => {
       { path: '/jobs-directory', icon: 'bi-briefcase', label: 'Job Opportunity', disabled: isBlocked },
       { path: '/mentorships-directory', icon: 'bi-person-heart', label: 'Mentorship', disabled: isBlocked },
       { path: '/news', icon: 'bi-newspaper', label: 'News', disabled: isBlocked },
-      { path: '/events-directory', icon: 'bi-calendar-event', label: 'Event', disabled: isBlocked }
+      { path: '/events-directory', icon: 'bi-calendar-event', label: 'Event', disabled: isBlocked },
+      { path: '/gallery', icon: 'bi-images', label: 'Gallery', disabled: isBlocked },
+      { path: '/messages', icon: 'bi-chat-dots', label: 'Messages', disabled: isBlocked }
+    );
+  }
+
+  // Admin menu items
+  if (user?.role === 'admin') {
+    menuItems.push(
+      { path: '/admin/dashboard', icon: 'bi-speedometer2', label: 'Dashboard', disabled: false },
+      { path: '/my-activity', icon: 'bi-clipboard-data', label: 'My Activity', disabled: false },
+      { path: '/students', icon: 'bi-people', label: 'Student Directory', disabled: false },
+      { path: '/alumni', icon: 'bi-person-check', label: 'Alumni Directory', disabled: false },
+      { path: '/faculty', icon: 'bi-mortarboard', label: 'Faculty', disabled: false },
+      { path: '/jobs-directory', icon: 'bi-briefcase', label: 'Job Opportunity', disabled: false },
+      { path: '/mentorships-directory', icon: 'bi-person-heart', label: 'Mentorship', disabled: false },
+      { path: '/news', icon: 'bi-newspaper', label: 'News', disabled: false },
+      { path: '/events-directory', icon: 'bi-calendar-event', label: 'Event', disabled: false },
+      { path: '/gallery', icon: 'bi-images', label: 'Gallery', disabled: false },
+      { path: '/messages', icon: 'bi-chat-dots', label: 'Messages', disabled: false }
+    );
+  }
+
+  // Coordinator menu items
+  if (user?.role === 'coordinator') {
+    menuItems.push(
+      { path: '/coordinator/dashboard', icon: 'bi-speedometer2', label: 'Dashboard', disabled: false },
+      { path: '/my-activity', icon: 'bi-clipboard-data', label: 'My Activity', disabled: false },
+      { path: '/students', icon: 'bi-people', label: 'Student Directory', disabled: false },
+      { path: '/alumni', icon: 'bi-person-check', label: 'Alumni Directory', disabled: false },
+      { path: '/faculty', icon: 'bi-mortarboard', label: 'Faculty', disabled: false },
+      { path: '/jobs-directory', icon: 'bi-briefcase', label: 'Job Opportunity', disabled: false },
+      { path: '/mentorships-directory', icon: 'bi-person-heart', label: 'Mentorship', disabled: false },
+      { path: '/news', icon: 'bi-newspaper', label: 'News', disabled: false },
+      { path: '/events-directory', icon: 'bi-calendar-event', label: 'Event', disabled: false },
+      { path: '/gallery', icon: 'bi-images', label: 'Gallery', disabled: false },
+      { path: '/messages', icon: 'bi-chat-dots', label: 'Messages', disabled: false }
     );
   }
 
@@ -79,7 +117,7 @@ const Sidebar = () => {
               ) : (
                 <Link
                   className={`nav-link text-white ${
-                    location.pathname === item.path ? 'active bg-primary' : ''
+                    location.pathname === item.path || location.pathname.startsWith(item.path + '/') ? 'active bg-primary' : ''
                   }`}
                   to={item.path}
                   onClick={() => setIsOpen(false)}

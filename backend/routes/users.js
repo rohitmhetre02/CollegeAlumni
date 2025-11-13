@@ -47,6 +47,23 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
+// Get current user profile
+router.get('/profile', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId)
+      .select('-password')
+      .populate('savedJobs', 'title company location');
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // Update user profile
 router.put('/profile', auth, async (req, res) => {
   try {
@@ -54,7 +71,8 @@ router.put('/profile', auth, async (req, res) => {
       'name', 'phone', 'email', 'location', 'gender', 'headline', 'degree', 'college', 'birthDate', 'currentPosition', 'company', 'bio', 'profilePicture',
       'graduationYear', 'enrollmentNumber', 'skills', 'projects', 'resumeUrl',
       'linkedinUrl', 'facebookUrl', 'portfolioUrl', 'githubUrl', 'languages', 'experience',
-      'industry', 'workExperience', 'profileLink', 'youtubeUrl', 'instagramUrl'
+      'industry', 'workExperience', 'profileLink', 'youtubeUrl', 'instagramUrl',
+      'department', 'staffId', 'role'
     ];
     const updates = {};
     
@@ -64,14 +82,45 @@ router.put('/profile', auth, async (req, res) => {
       }
     });
 
+    // Check if email is being updated and if it's already taken by another user
+    if (updates.email) {
+      const existingUser = await User.findOne({ 
+        email: updates.email.toLowerCase(),
+        _id: { $ne: req.user.userId } // Exclude current user
+      });
+      
+      if (existingUser) {
+        return res.status(400).json({ message: 'Email address is already in use by another user' });
+      }
+      
+      // Normalize email
+      updates.email = updates.email.toLowerCase().trim();
+    }
+
+    if (req.body.facultyId !== undefined) {
+      updates.staffId = req.body.facultyId;
+    }
+
+    if (updates.role && !['admin', 'coordinator', 'student', 'alumni'].includes(updates.role)) {
+      return res.status(400).json({ message: 'Invalid role' });
+    }
+
     const user = await User.findByIdAndUpdate(
       req.user.userId,
       updates,
       { new: true, runValidators: true }
     ).select('-password');
 
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
     res.json(user);
   } catch (error) {
+    // Handle duplicate key error (MongoDB unique constraint)
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'Email address is already in use' });
+    }
     res.status(500).json({ message: error.message });
   }
 });

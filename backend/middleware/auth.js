@@ -19,7 +19,23 @@ export const auth = (req, res, next) => {
 
 export const authorize = (...roles) => {
   return (req, res, next) => {
+    // Check if req.user exists
+    if (!req.user) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+    
+    // Check if role exists in token
+    if (!req.user.role) {
+      console.error('Authorize middleware: User object missing role', { user: req.user });
+      return res.status(403).json({ message: 'Access denied. User role not found in token' });
+    }
+    
+    // Check if role is in allowed roles
     if (!roles.includes(req.user.role)) {
+      console.error('Authorize middleware: Role not authorized', { 
+        userRole: req.user.role, 
+        allowedRoles: roles 
+      });
       return res.status(403).json({ message: 'Access denied. Insufficient permissions' });
     }
     next();

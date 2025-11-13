@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import api from '../config/api';
 import Sidebar from '../components/Sidebar';
+import { useChat } from '../context/ChatContext';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
 
 const FacultyList = () => {
+  const { openChatWith } = useChat();
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -106,20 +108,47 @@ const FacultyList = () => {
                         {f.designation || f.title || 'Faculty'}
                       </p>
 
-                      {/* View Profile Button */}
-                      <button 
-                        className="btn btn-outline-secondary w-100"
-                        onClick={() => handleViewProfile(f._id)}
-                        style={{
-                          borderRadius: '8px',
-                          padding: '8px 16px',
-                          fontSize: '14px',
-                          fontWeight: '500',
-                          borderWidth: '1.5px'
-                        }}
-                      >
-                        View Profile
-                      </button>
+                      {/* Action Buttons */}
+                      <div className="d-flex gap-2">
+                        <button 
+                          className="btn btn-outline-secondary flex-grow-1"
+                          onClick={() => handleViewProfile(f._id)}
+                          style={{
+                            borderRadius: '8px',
+                            padding: '8px 16px',
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            borderWidth: '1.5px'
+                          }}
+                        >
+                          View Profile
+                        </button>
+                        <button 
+                          className="btn btn-outline-primary flex-grow-1"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openChatWith(f);
+                          }}
+                          style={{
+                            borderRadius: '8px',
+                            padding: '8px 16px',
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            borderWidth: '1.5px',
+                            transition: 'all 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.background = '#1976D2';
+                            e.target.style.color = 'white';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.background = 'transparent';
+                            e.target.style.color = '#1976D2';
+                          }}
+                        >
+                          <i className="bi bi-chat-dots me-1"></i> Message
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

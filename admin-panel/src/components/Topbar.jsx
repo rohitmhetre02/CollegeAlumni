@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useChat } from '../context/ChatContext';
 
 const Topbar = () => {
   const { user, logout } = useAuth();
+  const { unreadCounts } = useChat();
+  const navigate = useNavigate();
   const [openProfile, setOpenProfile] = useState(false);
   const [openNotif, setOpenNotif] = useState(false);
-  const [openMsg, setOpenMsg] = useState(false);
   const profileRef = useRef(null);
 
   const notifications = [
@@ -26,20 +28,55 @@ const Topbar = () => {
   }, []);
 
   const handleLogout = () => logout();
-  const openMessages = () => { setOpenNotif(false); setOpenMsg(true); };
-  const openNotifications = () => { setOpenMsg(false); setOpenNotif(true); };
+  const openMessages = () => { 
+    const basePath = user?.role === 'admin' ? '/admin' : '/coordinator';
+    navigate(`${basePath}/messages`);
+  };
+  const openNotifications = () => { setOpenNotif(true); };
 
   return (
     <div className="d-flex align-items-center justify-content-end py-2 px-3 border-bottom bg-white" style={{ position: 'sticky', top: 0, zIndex: 1020 }}>
       <button className="btn btn-link text-dark me-2" onClick={openNotifications} aria-label="Notifications">
         <i className="bi bi-bell fs-5"></i>
       </button>
-      <button className="btn btn-link text-dark me-2" onClick={openMessages} aria-label="Messages">
+      <button 
+        className="btn btn-link text-dark me-2 position-relative" 
+        onClick={openMessages} 
+        aria-label="Messages"
+      >
         <i className="bi bi-chat-dots fs-5"></i>
+        {(() => {
+          const totalUnread = Object.values(unreadCounts || {}).reduce((sum, count) => sum + count, 0);
+          return totalUnread > 0 && (
+            <span 
+              className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"
+              style={{ fontSize: '0.65rem', padding: '2px 5px', minWidth: '18px' }}
+            >
+              {totalUnread > 99 ? '99+' : totalUnread}
+            </span>
+          );
+        })()}
       </button>
       <div className="position-relative" ref={profileRef}>
-        <button className="btn btn-link text-dark d-flex align-items-center" onClick={() => setOpenProfile(!openProfile)} aria-label="Profile">
-          <i className="bi bi-person-circle fs-5"></i>
+        <button className="btn btn-link text-dark d-flex align-items-center p-0" onClick={() => setOpenProfile(!openProfile)} aria-label="Profile" style={{ borderRadius: '50%', overflow: 'hidden' }}>
+          {user?.profilePicture ? (
+            <img 
+              src={user.profilePicture} 
+              alt={user.name || 'Profile'} 
+              style={{ 
+                width: '32px', 
+                height: '32px', 
+                objectFit: 'cover', 
+                borderRadius: '50%',
+                border: '2px solid #dee2e6'
+              }}
+              onError={(e) => {
+                e.target.style.display = 'none';
+                e.target.nextSibling.style.display = 'block';
+              }}
+            />
+          ) : null}
+          <i className={`bi bi-person-circle fs-5 ${user?.profilePicture ? 'd-none' : ''}`}></i>
         </button>
         {openProfile && (
           <div className="dropdown-menu dropdown-menu-end show" style={{ right: 0 }}>
@@ -71,40 +108,8 @@ const Topbar = () => {
           ))}
         </div>
       </div>
-      {/* Right-side Message Drawer */}
-      <div
-        className={`position-fixed top-0 end-0 h-100 bg-white border-start shadow ${openMsg ? '' : 'd-none'}`}
-        style={{ width: '360px', zIndex: 1050 }}
-      >
-        <div className="d-flex align-items-center justify-content-between border-bottom px-3 py-2">
-          <h6 className="mb-0"><i className="bi bi-chat-dots"></i> Messages</h6>
-          <button className="btn btn-sm btn-outline-secondary" onClick={() => setOpenMsg(false)}>
-            Close
-          </button>
-        </div>
-        <div className="p-3" style={{ overflowY: 'auto', height: 'calc(100% - 48px)' }}>
-          <div className="mb-3">
-            <div className="fw-semibold">Student</div>
-            <div className="text-muted small">Hi, I have a question about registration.</div>
-            <hr />
-          </div>
-          <div className="mb-3">
-            <div className="fw-semibold">Coordinator</div>
-            <div className="text-muted small">New mentorship request submitted.</div>
-            <hr />
-          </div>
-          <div className="mb-3">
-            <div className="fw-semibold">Admin</div>
-            <div className="text-muted small">Your report is scheduled for review.</div>
-            <hr />
-          </div>
-        </div>
-      </div>
       {openNotif && (
         <div className="position-fixed top-0 start-0 w-100 h-100" style={{ background: 'rgba(0,0,0,0.35)', zIndex: 1040 }} onClick={() => setOpenNotif(false)}></div>
-      )}
-      {openMsg && (
-        <div className="position-fixed top-0 start-0 w-100 h-100" style={{ background: 'rgba(0,0,0,0.35)', zIndex: 1040 }} onClick={() => setOpenMsg(false)}></div>
       )}
     </div>
   );

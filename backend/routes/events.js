@@ -69,7 +69,8 @@ router.post('/:id/register', auth, authorize('student', 'alumni'), async (req, r
 
     // Check if already registered
     const alreadyRegistered = event.attendees.some(
-      attendee => attendee.user.toString() === req.user.userId
+      attendee => attendee.user?.toString() === req.user.userId || 
+                  (attendee.email && attendee.email === req.body.email)
     );
 
     if (alreadyRegistered) {
@@ -82,13 +83,53 @@ router.post('/:id/register', auth, authorize('student', 'alumni'), async (req, r
     }
 
     event.attendees.push({
-      user: req.user.userId
+      user: req.user.userId,
+      name: req.body.name,
+      department: req.body.department,
+      role: req.body.role,
+      currentYear: req.body.currentYear,
+      graduationYear: req.body.graduationYear,
+      mobileNumber: req.body.mobileNumber,
+      email: req.body.email
     });
 
     await event.save();
-    await event.populate('attendees.user', 'name email role');
+    await event.populate('attendees.user', 'name email role department');
 
     res.json(event);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get event registrations (Owner / Admin / Coordinator)
+router.get('/:id/registrations', auth, async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id)
+      .populate('attendees.user', 'name email role department')
+      .populate('organizer', 'name email');
+    
+    if (!event) {
+      return res.status(404).json({ message: 'Event not found' });
+    }
+
+    const canView = 
+      event.organizer.toString() === req.user.userId ||
+      req.user.role === 'admin' ||
+      (req.user.role === 'coordinator' && event.department === req.user.department);
+
+    if (!canView) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    res.json({
+      event: {
+        title: event.title,
+        date: event.date,
+        location: event.location
+      },
+      registrations: event.attendees
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

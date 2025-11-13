@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
 import api from '../config/api';
+import { uploadResumeToBackend } from '../utils/upload';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
 
@@ -23,15 +24,19 @@ const JobDetail = () => {
   const [relatedJobs, setRelatedJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('description');
-  const [showApplyModal, setShowApplyModal] = useState(false);
+  const [showReferralModal, setShowReferralModal] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
-  const [applying, setApplying] = useState(false);
   const [submittingReview, setSubmittingReview] = useState(false);
   const [submittingFAQ, setSubmittingFAQ] = useState(false);
   const [submittingDiscussion, setSubmittingDiscussion] = useState(false);
+  const [submittingReferral, setSubmittingReferral] = useState(false);
+  const [uploadingResume, setUploadingResume] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  // Application form
-  const [applicationForm, setApplicationForm] = useState({
+  // Referral request form
+  const [referralForm, setReferralForm] = useState({
+    resumeFile: null,
     resumeUrl: '',
     coverLetter: ''
   });
@@ -60,6 +65,13 @@ const JobDetail = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  useEffect(() => {
+    if (user && id) {
+      checkIfSaved();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, id]);
+
   const load = async () => {
     setLoading(true);
     await Promise.all([fetchJob(), fetchRelatedJobs()]);
@@ -70,11 +82,91 @@ const JobDetail = () => {
     try {
       const res = await api.get(`/jobs/${id}`);
       setJob(res.data);
+      checkIfSaved();
     } catch (err) {
       console.error('fetchJob error', err);
       setJob(null);
     }
   };
+
+  const checkIfSaved = async () => {
+    if (!user || !id) return;
+    try {
+      const userRes = await api.get('/users/profile');
+      const savedJobs = userRes.data.savedJobs || [];
+      const jobIdStr = id.toString();
+      setIsSaved(savedJobs.some(jobId => jobId.toString() === jobIdStr));
+    } catch (err) {
+      console.error('Error checking saved status:', err);
+    }
+  };
+
+  const handleSaveJob = async () => {
+    if (!user) {
+      alert('Please login to save jobs');
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await api.post(`/jobs/${id}/save`);
+      setIsSaved(res.data.saved);
+    } catch (err) {
+      console.error('Error saving job:', err);
+      alert('Failed to save job');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleShare = () => {
+    if (navigator.share) {
+      navigator.share({
+        title: job.title,
+        text: `Check out this job: ${job.title} at ${job.company}`,
+        url: window.location.href
+      }).catch(err => {
+        console.error('Error sharing:', err);
+        fallbackShare();
+      });
+    } else {
+      fallbackShare();
+    }
+  };
+
+  const fallbackShare = () => {
+    navigator.clipboard?.writeText(window.location.href);
+    alert('Link copied to clipboard!');
+  };
+
+  const handleAddToCalendar = () => {
+    if (!job.importantDates?.applicationDeadline) {
+      alert('Application deadline not available for this job');
+      return;
+    }
+
+    const deadline = new Date(job.importantDates.applicationDeadline);
+    const startDate = deadline.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    const endDate = new Date(deadline.getTime() + 60 * 60 * 1000).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    
+    const title = encodeURIComponent(`Application Deadline: ${job.title}`);
+    const details = encodeURIComponent(`Apply for ${job.title} at ${job.company}\nLocation: ${job.location}`);
+    const location = encodeURIComponent(job.location || '');
+    
+    const googleCalendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${startDate}/${endDate}&details=${details}&location=${location}`;
+    
+    window.open(googleCalendarUrl, '_blank');
+  };
+
+  // Poll for new referral requests every 5 seconds
+  useEffect(() => {
+    if (!job || !id) return;
+    
+    const interval = setInterval(() => {
+      fetchJob();
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [id, job]);
 
   const fetchRelatedJobs = async () => {
     try {
@@ -86,38 +178,64 @@ const JobDetail = () => {
     }
   };
 
-  const hasApplied = () => {
-    if (!job || !job.applications) return false;
-    if (!user) return false;
-    return job.applications.some(app => {
-      // handle either nested student obj or plain id
-      if (app.student && app.student._id) return app.student._id === user.id;
-      if (app.student) return app.student === user.id;
-      if (app.userId) return app.userId === user.id;
-      return false;
-    });
-  };
 
-  // Apply action
-  const handleApply = async () => {
-    if (!user) {
-      alert('Please login to apply.');
+  // Handle resume file upload
+  const handleResumeUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Validate file type
+    const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    if (!allowedTypes.includes(file.type)) {
+      alert('Please upload a PDF, DOC, or DOCX file');
       return;
     }
 
-    setApplying(true);
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      alert('File size should be less than 10MB');
+      return;
+    }
+
+    setUploadingResume(true);
     try {
-      // expecting backend to accept { resumeUrl, coverLetter } as JSON
-      await api.post(`/jobs/${id}/apply`, applicationForm);
-      alert('Applied successfully');
-      setShowApplyModal(false);
-      setApplicationForm({ resumeUrl: '', coverLetter: '' });
+      const resumeUrl = await uploadResumeToBackend(file);
+      setReferralForm({ ...referralForm, resumeUrl, resumeFile: file });
+    } catch (error) {
+      console.error('Error uploading resume:', error);
+      alert('Failed to upload resume. Please try again.');
+    } finally {
+      setUploadingResume(false);
+    }
+  };
+
+  // Submit referral request
+  const handleSubmitReferral = async () => {
+    if (!user) {
+      alert('Please login to send referral request.');
+      return;
+    }
+
+    if (!referralForm.resumeUrl) {
+      alert('Please upload your resume');
+      return;
+    }
+
+    setSubmittingReferral(true);
+    try {
+      await api.post(`/jobs/${id}/referral`, {
+        resumeUrl: referralForm.resumeUrl,
+        coverLetter: referralForm.coverLetter
+      });
+      alert('Referral request sent successfully');
+      setShowReferralModal(false);
+      setReferralForm({ resumeFile: null, resumeUrl: '', coverLetter: '' });
       fetchJob();
     } catch (err) {
       console.error(err);
-      alert(err?.response?.data?.message || 'Failed to apply');
+      alert(err?.response?.data?.message || 'Failed to send referral request');
     } finally {
-      setApplying(false);
+      setSubmittingReferral(false);
     }
   };
 
@@ -220,6 +338,19 @@ const JobDetail = () => {
     return `${days} days ago`;
   };
 
+  const getDaysLeft = (deadline) => {
+    if (!deadline) return null;
+    const deadlineDate = new Date(deadline);
+    const now = new Date();
+    const diffTime = deadlineDate - now;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 0) return 'Deadline passed';
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return '1 day left';
+    return `${diffDays} days left`;
+  };
+
   const averageRating = job?.reviews?.length > 0
     ? (job.reviews.reduce((s, r) => s + (r.rating || 0), 0) / job.reviews.length).toFixed(1)
     : '0.0';
@@ -228,10 +359,12 @@ const JobDetail = () => {
     return (
       <div className="d-flex">
         <Sidebar />
-        <main className="flex-grow-1 p-4" style={{ background: '#fff5f8', minHeight: '100vh' }}>
-          <div className="d-flex align-items-center justify-content-center" style={{ height: '60vh' }}>
-            <div className="spinner-border text-primary" role="status">
-              <span className="visually-hidden">Loading...</span>
+        <main className="sidebar-main-content flex-grow-1" style={{ background: '#fff5f8', minHeight: '100vh', padding: '20px 40px' }}>
+          <div style={{ maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
+            <div className="d-flex align-items-center justify-content-center" style={{ height: '60vh' }}>
+              <div className="spinner-border text-primary" role="status">
+                <span className="visually-hidden">Loading...</span>
+              </div>
             </div>
           </div>
         </main>
@@ -243,8 +376,10 @@ const JobDetail = () => {
     return (
       <div className="d-flex">
         <Sidebar />
-        <main className="flex-grow-1 p-4">
-          <div className="alert alert-warning">Job not found</div>
+        <main className="sidebar-main-content flex-grow-1" style={{ padding: '20px 40px', minHeight: '100vh' }}>
+          <div style={{ maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
+            <div className="alert alert-warning">Job not found</div>
+          </div>
         </main>
       </div>
     );
@@ -254,28 +389,17 @@ const JobDetail = () => {
   return (
     <div className="d-flex">
       <Sidebar />
-      <main className="flex-grow-1" style={{ background: '#fff0f4', minHeight: '100vh' }}>
+      <main className="sidebar-main-content flex-grow-1" style={{ background: '#fff0f4', minHeight: '100vh', padding: '0', width: '100%' }}>
         {/* Top breadcrumb / return */}
-        <div className="container-fluid px-4 py-3">
-          <div className="d-flex justify-content-between align-items-center mb-3">
-            <div>
-              <button className="btn btn-link p-0 text-decoration-none" onClick={() => navigate('/jobs-directory')}>
-                <i className="bi bi-arrow-left"></i> Back to Jobs
-              </button>
-            </div>
-            <div className="d-flex align-items-center gap-3">
-              {/* small icons similar to screenshot */}
-              <button className="btn btn-sm btn-light rounded-circle" title="Notifications"><i className="bi bi-bell"></i></button>
-              <img 
-                src={user?.profilePicture || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'U')}`} 
-                alt="me" 
-                style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} 
-              />
-            </div>
+        <div style={{ padding: '20px 40px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
+          <div className="mb-3">
+            <button className="btn btn-link p-0 text-decoration-none" onClick={() => navigate('/jobs-directory')}>
+              <i className="bi bi-arrow-left"></i> Back to Jobs
+            </button>
           </div>
         </div>
 
-        <div className="container-fluid px-4 pb-5">
+        <div style={{ padding: '0 40px 40px 40px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
           <div className="row gx-4">
             {/* Main Column */}
             <div className="col-lg-8">
@@ -295,55 +419,20 @@ const JobDetail = () => {
                     </div>
                   </div>
                   <div className="flex-grow-1">
-                    <h2 style={{ marginBottom: 4, fontSize: '28px', fontWeight: '700' }}>{job.title}</h2>
-                    <div className="d-flex align-items-center gap-3 text-muted" style={{ fontSize: 14 }}>
-                      <div><i className="bi bi-building"></i> <strong className="text-dark">{job.company}</strong></div>
-                      <div><i className="bi bi-geo-alt"></i> {job.location || 'Location not specified'}</div>
-                      <div><i className="bi bi-clock"></i> Updated: {getDaysAgo(job.updatedAt)}</div>
-                    </div>
-                  </div>
-
-                  {/* Action area */}
-                  <div style={{ minWidth: 180 }}>
-                    <div className="d-flex justify-content-end align-items-start gap-2">
-                      <button className="btn btn-outline-secondary btn-sm" title="Save"><i className="bi bi-heart"></i></button>
-                      <button className="btn btn-outline-secondary btn-sm" title="Calendar"><i className="bi bi-calendar-event"></i></button>
-                      <button
-                        className="btn btn-sm"
-                        style={{ background: '#fff', border: '1px solid #e7e7e7' }}
-                        onClick={() => {
-                          if (navigator.share) {
-                            navigator.share({ title: job.title, url: window.location.href });
-                          } else {
-                            navigator.clipboard?.writeText(window.location.href);
-                            alert('Link copied to clipboard!');
-                          }
-                        }}
-                        title="Share"
-                      >
-                        <i className="bi bi-share"></i>
-                      </button>
-                    </div>
-                    <div className="mt-3 d-grid">
-                      {user?.role === 'student' ? (
-                        <button 
-                          className={`btn btn-primary btn-lg ${hasApplied() ? 'disabled' : ''}`} 
-                          onClick={() => setShowApplyModal(true)}
-                          disabled={hasApplied()}
-                        >
-                          {hasApplied() ? 'Applied' : 'Apply'}
-                        </button>
-                      ) : (
-                        <button 
-                          className="btn btn-primary btn-lg" 
-                          onClick={() => {
-                            if (!user) { alert('Please login to apply'); return; }
-                            setShowApplyModal(true);
-                          }}
-                        >
-                          Apply
-                        </button>
-                      )}
+                    <h2 style={{ marginBottom: 12, fontSize: '28px', fontWeight: '700' }}>{job.title}</h2>
+                    <div className="text-muted" style={{ fontSize: 14, lineHeight: '1.8' }}>
+                      <div className="mb-2">
+                        <i className="bi bi-building me-2"></i>
+                        <strong className="text-dark">{job.company}</strong>
+                      </div>
+                      <div className="mb-2">
+                        <i className="bi bi-geo-alt me-2"></i>
+                        {job.location || 'Location not specified'}
+                      </div>
+                      <div>
+                        <i className="bi bi-clock me-2"></i>
+                        Updated: {getDaysAgo(job.updatedAt)}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -353,18 +442,49 @@ const JobDetail = () => {
               <div className="row">
                 <div className="col-md-7">
                   {/* Eligibility chip */}
-                  {job.eligibility && (
-                    <div className="card mb-3" style={{ borderRadius: 10 }}>
-                      <div className="card-body p-3">
-                        <strong>Eligibility</strong>
-                        <div className="text-muted mt-1">
-                          {job.eligibility.summary || 
-                           (job.eligibility.minEducation ? `${job.eligibility.minEducation} ` : '') +
-                           (job.eligibility.minExperience ? `with ${job.eligibility.minExperience} experience` : 'Experienced Professionals')}
-                        </div>
+                  <div className="card mb-3" style={{ borderRadius: 10 }}>
+                    <div className="card-body p-3">
+                      <strong>Eligibility</strong>
+                      <div className="text-muted mt-1">
+                        {job.eligibility ? (
+                          job.eligibility.summary || 
+                          (job.eligibility.minEducation ? `${job.eligibility.minEducation} ` : '') +
+                          (job.eligibility.minExperience ? `with ${job.eligibility.minExperience} experience` : 'Experienced Professionals')
+                        ) : 'Open to all eligible candidates'}
                       </div>
+                      
+                      {/* Referral Requests Count */}
+                      {(user?.role === 'admin' || user?.role === 'coordinator' || job.postedBy?._id === user?.id) && (
+                        <div className="mt-3 pt-3 border-top">
+                          <div className="d-flex align-items-center justify-content-between">
+                            <span className="text-muted">Received Referral Requests</span>
+                            <span className="badge bg-primary rounded-pill">
+                              {job.referralRequests?.length || 0}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Application Deadline */}
+                      {job.importantDates?.applicationDeadline && (
+                        <div className="mt-3 pt-3 border-top">
+                          <div className="d-flex align-items-center justify-content-between">
+                            <span className="text-muted">Application Deadline</span>
+                            <span className="text-primary fw-bold">
+                              {getDaysLeft(job.importantDates.applicationDeadline)}
+                            </span>
+                          </div>
+                          <small className="text-muted">
+                            {new Date(job.importantDates.applicationDeadline).toLocaleDateString('en-US', {
+                              month: 'long',
+                              day: 'numeric',
+                              year: 'numeric'
+                            })}
+                          </small>
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
 
                   {/* Refer & Win */}
                   {job.referAndWin?.enabled && (
@@ -378,7 +498,7 @@ const JobDetail = () => {
                         <div style={{ width: 64 }}>
                           {/* small promo image */}
                           <img 
-                            src={job.referAndWin.image || 'https://via.placeholder.com/64x64?text=Reward'} 
+                            src={job.referAndWin.image || 'https://placehold.co/64x64?text=Reward&font=roboto'} 
                             alt="promo" 
                             style={{ width: 64, height: 64, borderRadius: 8, objectFit: 'cover' }} 
                           />
@@ -389,14 +509,72 @@ const JobDetail = () => {
                 </div>
 
                 <div className="col-md-5">
-                  {/* Ad banner */}
+                  {/* Icons in separate cards */}
+                  <div className="d-flex gap-2 mb-3">
+                    <div className="card" style={{ borderRadius: 10, flex: 1 }}>
+                      <div className="card-body p-3 text-center">
+                        <button 
+                          className={`btn btn-sm ${isSaved ? 'btn-danger' : 'btn-outline-secondary'}`}
+                          title={isSaved ? 'Unsave' : 'Save'}
+                          onClick={handleSaveJob}
+                          disabled={saving}
+                          style={{ border: 'none', width: '100%' }}
+                        >
+                          <i className={`bi ${isSaved ? 'bi-heart-fill' : 'bi-heart'}`}></i>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="card" style={{ borderRadius: 10, flex: 1 }}>
+                      <div className="card-body p-3 text-center">
+                        <button 
+                          className="btn btn-sm btn-outline-secondary" 
+                          title="Add to Calendar"
+                          onClick={handleAddToCalendar}
+                          style={{ border: 'none', width: '100%' }}
+                        >
+                          <i className="bi bi-calendar-event"></i>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="card" style={{ borderRadius: 10, flex: 1 }}>
+                      <div className="card-body p-3 text-center">
+                        <button
+                          className="btn btn-sm btn-outline-secondary"
+                          onClick={handleShare}
+                          title="Share"
+                          style={{ border: 'none', width: '100%' }}
+                        >
+                          <i className="bi bi-share"></i>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Referral Request button in separate card */}
                   <div className="card mb-3" style={{ borderRadius: 10 }}>
-                    <div className="card-body p-2">
-                      <img 
-                        src={job.bannerImage || 'https://via.placeholder.com/600x120?text=Advertisement'} 
-                        alt="banner" 
-                        style={{ width: '100%', borderRadius: 8 }} 
-                      />
+                    <div className="card-body p-4 text-center">
+                      <button 
+                        className="btn btn-primary w-100"
+                        onClick={() => {
+                          if (!user) {
+                            alert('Please login to send referral request');
+                            return;
+                          }
+                          setShowReferralModal(true);
+                        }}
+                        style={{ 
+                          padding: '12px 24px',
+                          fontSize: '16px',
+                          fontWeight: '600',
+                          borderRadius: '8px',
+                          backgroundColor: '#4F46E5',
+                          border: 'none',
+                          color: '#fff'
+                        }}
+                      >
+                        <i className="bi bi-send me-2"></i>
+                        Referral Request
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -726,7 +904,7 @@ const JobDetail = () => {
 
             {/* Sidebar Column */}
             <aside className="col-lg-4">
-              <div className="sticky-top" style={{ top: 16 }}>
+              <div className="sticky-top" style={{ top: '80px', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto', zIndex: 10, paddingTop: '20px' }}>
                 <div className="card mb-4" style={{ borderRadius: 12 }}>
                   <div className="card-body">
                     <h6 className="text-muted">Job Location</h6>
@@ -759,7 +937,7 @@ const JobDetail = () => {
                         {job.featuredItems.slice(0, 3).map((f, i) => (
                           <div key={i} className="d-flex gap-2 align-items-center mb-2">
                             <img 
-                              src={f.image || 'https://via.placeholder.com/64'} 
+                              src={f.image || 'https://placehold.co/64x64?text=Job'} 
                               alt="f" 
                               style={{ width: 64, height: 48, objectFit: 'cover', borderRadius: 8 }} 
                             />
@@ -837,43 +1015,74 @@ const JobDetail = () => {
           </div>
         </div>
 
-        {/* Apply Modal */}
-        {showApplyModal && (
+        {/* Referral Request Modal */}
+        {showReferralModal && (
           <div className="modal show d-block" tabIndex="-1" style={{ background: 'rgba(0,0,0,0.5)' }}>
             <div className="modal-dialog modal-dialog-centered">
               <div className="modal-content">
                 <div className="modal-header">
-                  <h5 className="modal-title">Apply for {job.title}</h5>
+                  <h5 className="modal-title">Send Referral Request for {job.title}</h5>
                   <button 
                     type="button" 
                     className="btn-close" 
                     aria-label="Close" 
                     onClick={() => {
-                      setShowApplyModal(false);
-                      setApplicationForm({ resumeUrl: '', coverLetter: '' });
+                      setShowReferralModal(false);
+                      setReferralForm({ resumeFile: null, resumeUrl: '', coverLetter: '' });
                     }}
                   ></button>
                 </div>
                 <div className="modal-body">
                   <div className="mb-3">
-                    <label className="form-label">Resume URL <span className="text-danger">*</span></label>
+                    <label className="form-label">Upload Resume <span className="text-danger">*</span></label>
+                    <input 
+                      type="file" 
+                      className="form-control" 
+                      accept=".pdf,.doc,.docx"
+                      onChange={handleResumeUpload}
+                      disabled={uploadingResume}
+                    />
+                    <small className="form-text text-muted">
+                      {uploadingResume 
+                        ? 'Uploading to Cloudinary...' 
+                        : 'Upload PDF, DOC, or DOCX file (Max 10MB)'}
+                    </small>
+                    {referralForm.resumeUrl && (
+                      <div className="mt-2">
+                        <small className="text-success">
+                          <i className="bi bi-check-circle me-1"></i>
+                          Resume uploaded successfully
+                        </small>
+                        <a 
+                          href={referralForm.resumeUrl} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="ms-2"
+                        >
+                          View Resume
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label">Or enter Resume URL</label>
                     <input 
                       type="url" 
                       className="form-control" 
-                      placeholder="Paste resume link (or upload and paste link)" 
-                      value={applicationForm.resumeUrl} 
-                      onChange={(e) => setApplicationForm({ ...applicationForm, resumeUrl: e.target.value })} 
+                      placeholder="Paste resume link (if you have it hosted elsewhere)" 
+                      value={referralForm.resumeUrl} 
+                      onChange={(e) => setReferralForm({ ...referralForm, resumeUrl: e.target.value })} 
                     />
-                    <small className="form-text text-muted">Upload your resume via S3/upload UI and paste the URL here.</small>
+                    <small className="form-text text-muted">You can also paste a Google Drive or Dropbox link</small>
                   </div>
                   <div className="mb-3">
                     <label className="form-label">Cover Letter (optional)</label>
                     <textarea 
                       className="form-control" 
                       rows="4" 
-                      value={applicationForm.coverLetter} 
-                      onChange={(e) => setApplicationForm({ ...applicationForm, coverLetter: e.target.value })}
-                      placeholder="Tell us why you're interested in this position..."
+                      value={referralForm.coverLetter} 
+                      onChange={(e) => setReferralForm({ ...referralForm, coverLetter: e.target.value })}
+                      placeholder="Tell us why you're requesting a referral for this position..."
                     ></textarea>
                   </div>
                 </div>
@@ -881,18 +1090,18 @@ const JobDetail = () => {
                   <button 
                     className="btn btn-secondary" 
                     onClick={() => {
-                      setShowApplyModal(false);
-                      setApplicationForm({ resumeUrl: '', coverLetter: '' });
+                      setShowReferralModal(false);
+                      setReferralForm({ resumeFile: null, resumeUrl: '', coverLetter: '' });
                     }}
                   >
                     Cancel
                   </button>
                   <button 
                     className="btn btn-primary" 
-                    onClick={handleApply} 
-                    disabled={applying || !applicationForm.resumeUrl.trim()}
+                    onClick={handleSubmitReferral} 
+                    disabled={submittingReferral || uploadingResume || !referralForm.resumeUrl.trim()}
                   >
-                    {applying ? 'Applying...' : 'Submit Application'}
+                    {submittingReferral ? 'Sending...' : 'Send Referral Request'}
                   </button>
                 </div>
               </div>
@@ -958,11 +1167,6 @@ const JobDetail = () => {
             </div>
           </div>
         )}
-
-        {/* Footer small */}
-        <footer className="py-4 text-center text-muted" style={{ background: '#fff', marginTop: '40px' }}>
-          <small>Powered by Unstop UI — best viewed in modern browsers</small>
-        </footer>
       </main>
     </div>
   );

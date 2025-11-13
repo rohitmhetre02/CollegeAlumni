@@ -43,8 +43,8 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
-// Create mentorship program (Alumni only)
-router.post('/', auth, authorize('alumni'), async (req, res) => {
+// Create mentorship program (Alumni, Admin, Coordinator)
+router.post('/', auth, authorize('alumni', 'admin', 'coordinator'), async (req, res) => {
   try {
     const mentorship = new Mentorship({
       ...req.body,
@@ -310,46 +310,83 @@ router.delete('/:id/resources/:resourceId', auth, async (req, res) => {
   }
 });
 
-// Add review (Student only)
-router.post('/:id/reviews', auth, authorize('student'), async (req, res) => {
+// Add review - ALL authenticated users (admin, coordinator, student, alumni) can review
+// MUST be before /:id/profile route to avoid route conflicts
+router.post('/:id/reviews', auth, async (req, res) => {
   try {
+    console.log('Review submission endpoint hit:', {
+      mentorshipId: req.params.id,
+      userId: req.user?.userId,
+      userRole: req.user?.role, // Can be: admin, coordinator, student, or alumni
+      rating: req.body.rating,
+      hasComment: !!req.body.comment
+    });
+
+    // Verify user is authenticated (all roles allowed: admin, coordinator, student, alumni)
+    if (!req.user || !req.user.userId) {
+      console.error('Review submission failed: No user in request');
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+
     const mentorship = await Mentorship.findById(req.params.id);
     
     if (!mentorship) {
       return res.status(404).json({ message: 'Mentorship not found' });
     }
 
-    // Check if student has been mentored by this mentor
-    const isMentee = mentorship.mentees.some(
-      mentee => mentee.student.toString() === req.user.userId && mentee.status === 'accepted'
-    );
+    const userId = req.user.userId.toString();
+    const mentorId = mentorship.mentor.toString();
 
-    if (!isMentee) {
-      return res.status(403).json({ message: 'Only accepted mentees can review' });
+    console.log('Review check:', {
+      userId,
+      mentorId,
+      isOwner: mentorId === userId
+    });
+
+    // Check if user is the mentor (mentors can't review themselves)
+    if (mentorId === userId) {
+      return res.status(403).json({ message: 'You cannot review your own mentorship profile' });
     }
 
-    // Check if already reviewed
-    const alreadyReviewed = mentorship.reviews.some(
-      review => review.student.toString() === req.user.userId
-    );
+    // Check if already reviewed - handle both ObjectId and string comparisons
+    const alreadyReviewed = mentorship.reviews.some(review => {
+      const reviewStudentId = review.student?.toString() || review.student;
+      return reviewStudentId === userId;
+    });
 
     if (alreadyReviewed) {
       return res.status(400).json({ message: 'You have already reviewed this mentor' });
     }
 
+    // Validate rating
+    if (!req.body.rating || req.body.rating < 1 || req.body.rating > 5) {
+      return res.status(400).json({ message: 'Rating must be between 1 and 5' });
+    }
+
     const review = {
       student: req.user.userId,
       rating: req.body.rating,
-      comment: req.body.comment
+      comment: req.body.comment || ''
     };
 
     mentorship.reviews.push(review);
+    
+    // Calculate and update average rating
+    if (mentorship.reviews && mentorship.reviews.length > 0) {
+      const sum = mentorship.reviews.reduce((acc, r) => acc + (r.rating || 0), 0);
+      mentorship.rating = sum / mentorship.reviews.length;
+      mentorship.totalRatings = mentorship.reviews.length;
+    }
+    
     await mentorship.save();
-    await mentorship.populate('reviews.student', 'name profilePicture');
+    await mentorship.populate('reviews.student', 'name profilePicture email role');
 
+    console.log('Review successfully added');
     res.json(mentorship);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Error adding review:', error);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ message: error.message || 'Failed to add review' });
   }
 });
 

@@ -29,6 +29,14 @@ const MentorProfile = () => {
   const [newTopic, setNewTopic] = useState('');
   const [newSkill, setNewSkill] = useState('');
   const [newLanguage, setNewLanguage] = useState({ language: '', proficiency: '' });
+  const [requestingMentorship, setRequestingMentorship] = useState(false);
+  const [hasRequested, setHasRequested] = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [reviewForm, setReviewForm] = useState({
+    rating: 0,
+    comment: ''
+  });
   const [resourceForm, setResourceForm] = useState({
     title: '',
     description: '',
@@ -39,6 +47,7 @@ const MentorProfile = () => {
     isFree: false,
     isBestSeller: false
   });
+  const [viewMode, setViewMode] = useState('public'); // 'public' or 'edit'
 
   const isOwner = mentorship && (mentorship.mentor?._id === user?.id || mentorship.mentor === user?.id);
 
@@ -58,31 +67,71 @@ const MentorProfile = () => {
     }
   }, [mentorship]);
 
+  // Check if user has already requested mentorship
+  useEffect(() => {
+    if (mentorship && user && mentorship.mentor) {
+      const mentorId = mentorship.mentor._id || mentorship.mentor;
+      const userId = user.id || user._id;
+      const currentUserIsOwner = mentorId?.toString() === userId?.toString();
+      
+      if (!currentUserIsOwner && mentorship.mentees && user) {
+        const requested = mentorship.mentees.some(
+          mentee => {
+            const studentId = mentee.student?._id || mentee.student;
+            return studentId?.toString() === userId?.toString();
+          }
+        );
+        setHasRequested(requested);
+      } else {
+        setHasRequested(false);
+      }
+    } else {
+      setHasRequested(false);
+    }
+  }, [mentorship, user]);
+
   const fetchMentorProfile = async () => {
     try {
-      console.log('Fetching mentor profile for mentorId:', mentorId);
-      const response = await api.get(`/mentorships/mentor/${mentorId}`);
-      const mentorshipData = response.data;
-      console.log('Mentorship data received:', mentorshipData);
-      setMentorship(mentorshipData);
-      
-      // If owner and no resources, show prompt to add resources
-      const isOwner = (mentorshipData.mentor?._id === user?.id || mentorshipData.mentor === user?.id);
-      if (isOwner && (!mentorshipData.resources || mentorshipData.resources.length === 0)) {
-        // Show resource modal automatically for new mentors
-        setTimeout(() => {
-          setShowResourceModal(true);
-        }, 1000);
+      if (!mentorId) {
+        console.error('Mentor ID is missing');
+        alert('Invalid mentor ID. Please try again.');
+        setLoading(false);
+        navigate('/mentorships');
+        return;
       }
       
+      console.log('Fetching mentor profile for ID:', mentorId);
+      const response = await api.get(`/mentorships/mentor/${mentorId}`);
+      const mentorshipData = response.data;
+      
+      if (!mentorshipData) {
+        throw new Error('No mentorship data received');
+      }
+      
+      console.log('Mentor profile data received:', mentorshipData);
+      setMentorship(mentorshipData);
       setLoading(false);
     } catch (error) {
       console.error('Error fetching mentor profile:', error);
-      console.error('Error response:', error.response?.data);
+      console.error('Error details:', {
+        status: error.response?.status,
+        data: error.response?.data,
+        mentorId: mentorId
+      });
+      
       if (error.response?.status === 404) {
         alert('Mentor profile not found. The mentor may not have created a mentorship profile yet.');
+      } else if (error.response?.status === 400) {
+        alert('Invalid mentor ID format. Please try again.');
+      } else {
+        alert('Failed to load mentor profile. Please try again later.');
       }
+      
       setLoading(false);
+      // Navigate back to mentorships page after a delay
+      setTimeout(() => {
+        navigate('/mentorships');
+      }, 2000);
     }
   };
 
@@ -224,452 +273,895 @@ const MentorProfile = () => {
   }
 
   const mentor = mentorship.mentor;
-  const rating = mentorship.rating || 0;
-  const totalReviews = mentorship.totalRatings || 0;
+  
+  // Calculate average rating from reviews
+  const calculateAverageRating = () => {
+    if (!mentorship.reviews || mentorship.reviews.length === 0) {
+      return 0;
+    }
+    const sum = mentorship.reviews.reduce((acc, review) => acc + (review.rating || 0), 0);
+    return sum / mentorship.reviews.length;
+  };
+  
+  const rating = calculateAverageRating();
+  const totalReviews = mentorship.reviews?.length || 0;
+  const menteeEngagements = mentorship.menteeEngagements || mentorship.mentees?.length || 0;
+  const averageAttendance = mentorship.averageAttendance || 100;
+
+  // Check if user can write a review 
+  // ALL authenticated users (admin, coordinator, student, alumni) can write reviews
+  // Exception: Mentor cannot review themselves, and users who already reviewed cannot review again
+  const canWriteReview = () => {
+    if (!user) return false;
+    if (isOwner) return false; // Mentor cannot review themselves
+    
+    // Check if already reviewed - any role (admin, coordinator, student, alumni) can review
+    const alreadyReviewed = mentorship.reviews?.some(
+      review => {
+        const studentId = review.student?._id || review.student;
+        const userId = user.id || user._id;
+        return studentId?.toString() === userId?.toString();
+      }
+    );
+    
+    // All authenticated users (all roles) can review if they haven't already
+    return !alreadyReviewed;
+  };
+
+  const handleSubmitReview = async () => {
+    if (!user) {
+      alert('Please log in to write a review.');
+      return;
+    }
+
+    if (isOwner) {
+      alert('You cannot review your own mentorship profile.');
+      return;
+    }
+
+    if (!reviewForm.rating || reviewForm.rating < 1 || reviewForm.rating > 5) {
+      alert('Please select a rating from 1 to 5 stars.');
+      return;
+    }
+
+    // Comment is optional but if provided, should be at least 10 characters
+    if (reviewForm.comment && reviewForm.comment.trim().length > 0 && reviewForm.comment.trim().length < 10) {
+      alert('Review comment must be at least 10 characters if provided.');
+      return;
+    }
+
+    setSubmittingReview(true);
+    try {
+      console.log('Submitting review:', {
+        mentorshipId: mentorship._id,
+        rating: reviewForm.rating,
+        comment: reviewForm.comment,
+        userId: user?.id || user?._id
+      });
+
+      const response = await api.post(`/mentorships/${mentorship._id}/reviews`, {
+        rating: reviewForm.rating,
+        comment: reviewForm.comment.trim() || ''
+      });
+      
+      console.log('Review submission response:', response.data);
+      
+      // Update mentorship state immediately with the new review data from response
+      if (response.data) {
+        setMentorship(response.data);
+        console.log('Review added, updated mentorship:', response.data);
+      }
+      
+      setShowReviewModal(false);
+      setReviewForm({ rating: 0, comment: '' });
+      
+      // Show success message
+      alert('Review submitted successfully! Your review is now visible.');
+      
+      // Refresh to ensure we have the latest data with all populated fields
+      await fetchMentorProfile();
+    } catch (error) {
+      console.error('Error submitting review:', error);
+      console.error('Error details:', {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.response?.data?.message
+      });
+      
+      if (error.response?.status === 401) {
+        alert('Authentication required. Please log in again.');
+        // Optionally redirect to login
+      } else if (error.response?.status === 403) {
+        alert(error.response.data?.message || 'Access denied. You cannot review this mentor.');
+      } else if (error.response?.status === 400) {
+        alert(error.response.data?.message || 'You have already reviewed this mentor or invalid data provided.');
+      } else if (error.response?.status === 404) {
+        alert('Mentorship not found. Please refresh the page and try again.');
+      } else {
+        alert(error.response?.data?.message || error.message || 'Failed to submit review. Please try again.');
+      }
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
+
+  const handleRequestMentorship = async () => {
+    if (!user || user.role !== 'student') {
+      alert('Only students can request mentorship.');
+      return;
+    }
+
+    if (hasRequested) {
+      alert('You have already requested mentorship with this mentor.');
+      return;
+    }
+
+    if (mentorship.status === 'full') {
+      alert('This mentorship program is full.');
+      return;
+    }
+
+    setRequestingMentorship(true);
+    try {
+      await api.post(`/mentorships/${mentorship._id}/request`);
+      setHasRequested(true);
+      alert('Mentorship request submitted successfully! The mentor will review your request.');
+      fetchMentorProfile(); // Refresh to get updated data
+    } catch (error) {
+      console.error('Error requesting mentorship:', error);
+      if (error.response?.status === 400) {
+        alert(error.response.data.message || 'You have already requested this mentorship.');
+        setHasRequested(true);
+      } else {
+        alert(error.response?.data?.message || 'Failed to submit mentorship request. Please try again.');
+      }
+    } finally {
+      setRequestingMentorship(false);
+    }
+  };
+
+  // Format achievements/headline info - match image style
+  const achievements = [];
+  if (mentor?.currentPosition && mentor?.company) {
+    achievements.push(`${mentor.currentPosition} @${mentor.company}`);
+  }
+  if (mentor?.degree && mentor?.college && mentor?.graduationYear) {
+    achievements.push(`${mentor.degree} ${mentor.college} ${mentor.graduationYear}`);
+  } else if (mentor?.degree && mentor?.graduationYear) {
+    achievements.push(`${mentor.degree} ${mentor.graduationYear}`);
+  }
+  if (mentor?.headline) {
+    achievements.push(...mentor.headline.split(' | ').filter(Boolean));
+  }
+  // Add additional achievements from mentor profile if available
+  if (mentorship.isTopMentor) {
+    achievements.push(`Rank ${mentorship.rank || '8th'} Unstoppable Mentor`);
+  }
 
   return (
     <div className="d-flex">
       <Sidebar />
-      
-      <div className="sidebar-main-content flex-grow-1 p-4">
-        {/* Header Banner with Stats */}
-        <div className="card mb-4" style={{ 
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-          color: 'white',
-          borderRadius: '12px'
-        }}>
-          <div className="card-body p-4">
-            <div className="row align-items-center">
-              <div className="col-md-6">
-                <h3 className="mb-0">{mentor?.name}</h3>
-                <p className="mb-2 opacity-75">{mentor?.headline || `${mentor?.currentPosition} @ ${mentor?.company}`}</p>
+      <div className="sidebar-main-content flex-grow-1" style={{ background: '#f0f4f8', minHeight: '100vh' }}>
+        <div className="container-fluid px-4 py-4">
+        {/* Statistics Cards - Match image layout */}
+        <div className="row g-3 mb-4">
+          {mentorship.isTopMentor && (
+            <div className="col-md-4">
+              <div className="card border-0 text-white text-center p-4" style={{ 
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                borderRadius: '12px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                minHeight: '140px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center'
+              }}>
+                <i className="bi bi-trophy-fill" style={{ fontSize: '2.5rem', color: '#FFD700', marginBottom: '12px' }}></i>
+                <div style={{ fontSize: '1.1rem', fontWeight: '600' }}>Top Mentor</div>
               </div>
-              <div className="col-md-6 text-end">
-                <div className="d-flex justify-content-end gap-4">
-                  {mentorship.isTopMentor && (
-                    <div className="text-center">
-                      <i className="bi bi-trophy-fill" style={{ fontSize: '2rem' }}></i>
-                      <div className="small">Top Mentor</div>
-                      <div className="fw-bold">{mentorship.menteeEngagements || 0} Engagements</div>
-                    </div>
-                  )}
-                  <div className="text-center">
-                    <i className="bi bi-calendar-check" style={{ fontSize: '2rem' }}></i>
-                    <div className="small">Average Attendance</div>
-                    <div className="fw-bold">{mentorship.averageAttendance || 100}%</div>
-                  </div>
-                </div>
-              </div>
+            </div>
+          )}
+          <div className={`col-md-${mentorship.isTopMentor ? '4' : '6'}`}>
+            <div className="card border-0 text-white text-center p-4" style={{ 
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              borderRadius: '12px',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+              minHeight: '140px',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}>
+              <i className="bi bi-calendar-check-fill" style={{ fontSize: '2.5rem', marginBottom: '12px' }}></i>
+              <div style={{ fontSize: '1.1rem', fontWeight: '600' }}>{menteeEngagements.toLocaleString()} Mentee Engagements</div>
+            </div>
+          </div>
+          <div className={`col-md-${mentorship.isTopMentor ? '4' : '6'}`}>
+            <div className="card border-0 text-white text-center p-4" style={{ 
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              borderRadius: '12px',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+              minHeight: '140px',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}>
+              <i className="bi bi-check-circle-fill" style={{ fontSize: '2.5rem', color: '#28a745', marginBottom: '12px' }}></i>
+              <div style={{ fontSize: '1.1rem', fontWeight: '600' }}>{averageAttendance}% Average Attendance</div>
             </div>
           </div>
         </div>
 
         <div className="row">
           {/* Left Sidebar - Profile Card */}
-          <div className="col-md-4">
-            <div className="card shadow-sm mb-4" style={{ borderRadius: '12px' }}>
-              <div className="card-body text-center">
-                {/* Available Badge and Edit Button */}
-                <div className="d-flex justify-content-between align-items-start mb-3">
+          <div className="col-lg-4 mb-4">
+            <div className="card shadow-sm border-0" style={{ borderRadius: '16px', position: 'sticky', top: '20px' }}>
+              <div className="card-body p-4">
+                {/* Profile Picture with Available Badge */}
+                <div className="text-center mb-3" style={{ position: 'relative', display: 'inline-block' }}>
+                  <img 
+                    src={mentor?.profilePicture || `https://ui-avatars.com/api/?name=${encodeURIComponent(mentor?.name || 'Mentor')}&size=200&background=667eea&color=fff`}
+                    alt={mentor?.name}
+                    className="rounded-circle"
+                    style={{ width: '120px', height: '120px', objectFit: 'cover', border: '4px solid #f0f0f0' }}
+                  />
                   {mentorship.isAvailable && (
-                    <span className="badge bg-success">
-                      <i className="bi bi-lightning-charge-fill"></i> Available
-                    </span>
-                  )}
-                  {isOwner && (
-                    <button
-                      className="btn btn-sm btn-outline-primary"
-                      onClick={() => setShowEditProfileModal(true)}
-                    >
-                      <i className="bi bi-pencil"></i> Edit
-                    </button>
-                  )}
-                </div>
-
-                {/* Profile Picture */}
-                <img 
-                  src={mentor?.profilePicture || `https://ui-avatars.com/api/?name=${encodeURIComponent(mentor?.name || 'Mentor')}&size=200`}
-                  alt={mentor?.name}
-                  className="rounded-circle mb-3"
-                  style={{ width: '120px', height: '120px', objectFit: 'cover' }}
-                />
-
-                {/* Rating */}
-                <div className="mb-2">
-                  <i className="bi bi-star-fill text-warning"></i>
-                  <span className="fw-bold ms-1">{rating.toFixed(1)}</span>
-                </div>
-
-                {/* Name */}
-                <h5 className="mb-3">{mentor?.name}</h5>
-
-                {/* Professional Details */}
-                <div className="text-muted small mb-3">
-                  {mentor?.currentPosition && <div><strong>{mentor?.currentPosition}</strong></div>}
-                  {mentor?.company && <div>@{mentor?.company}</div>}
-                  {mentor?.graduationYear && <div>MBA {mentor?.graduationYear}</div>}
-                </div>
-
-                {/* Social Links */}
-                <div className="d-flex justify-content-center gap-2 mb-3">
-                  {mentor?.linkedinUrl && (
-                    <a href={mentor.linkedinUrl} target="_blank" rel="noopener noreferrer" className="btn btn-outline-primary btn-sm">
-                      <i className="bi bi-linkedin"></i>
-                    </a>
-                  )}
-                  {mentor?.githubUrl && (
-                    <a href={mentor.githubUrl} target="_blank" rel="noopener noreferrer" className="btn btn-outline-dark btn-sm">
-                      <i className="bi bi-github"></i>
-                    </a>
-                  )}
-                  {mentor?.portfolioUrl && (
-                    <a href={mentor.portfolioUrl} target="_blank" rel="noopener noreferrer" className="btn btn-outline-info btn-sm">
-                      <i className="bi bi-globe"></i>
-                    </a>
-                  )}
-                </div>
-
-                {/* Expandable Sections */}
-                {mentorship.about && (
-                  <div className="mb-3">
-                    <button
-                      className="btn btn-link text-decoration-none p-0 w-100 text-start"
-                      onClick={() => toggleSection('about')}
-                    >
-                      <strong>About</strong>
-                      <i className={`bi bi-chevron-${expandedSections.about ? 'up' : 'down'} float-end`}></i>
-                    </button>
-                    {expandedSections.about && (
-                      <p className="text-muted small mt-2">{mentorship.about}</p>
-                    )}
-                  </div>
-                )}
-
-                {mentorship.topics && mentorship.topics.length > 0 && (
-                  <div className="mb-3">
-                    <button
-                      className="btn btn-link text-decoration-none p-0 w-100 text-start"
-                      onClick={() => toggleSection('topics')}
-                    >
-                      <strong>Topics</strong>
-                      <i className={`bi bi-chevron-${expandedSections.topics ? 'up' : 'down'} float-end`}></i>
-                    </button>
-                    {expandedSections.topics && (
-                      <div className="mt-2">
-                        {mentorship.topics.map((topic, idx) => (
-                          <span key={idx} className="badge bg-secondary me-1 mb-1">{topic}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {mentorship.skills && mentorship.skills.length > 0 && (
-                  <div className="mb-3">
-                    <button
-                      className="btn btn-link text-decoration-none p-0 w-100 text-start"
-                      onClick={() => toggleSection('skills')}
-                    >
-                      <strong>Skills</strong>
-                      <i className={`bi bi-chevron-${expandedSections.skills ? 'up' : 'down'} float-end`}></i>
-                    </button>
-                    {expandedSections.skills && (
-                      <div className="mt-2">
-                        {mentorship.skills.map((skill, idx) => (
-                          <span key={idx} className="badge bg-primary me-1 mb-1">{skill}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {mentorship.fluentIn && mentorship.fluentIn.length > 0 && (
-                  <div className="mb-3">
-                    <button
-                      className="btn btn-link text-decoration-none p-0 w-100 text-start"
-                      onClick={() => toggleSection('languages')}
-                    >
-                      <strong>Fluent in</strong>
-                      <i className={`bi bi-chevron-${expandedSections.languages ? 'up' : 'down'} float-end`}></i>
-                    </button>
-                    {expandedSections.languages && (
-                      <div className="mt-2">
-                        {mentorship.fluentIn.map((lang, idx) => (
-                          <div key={idx} className="small">
-                            {lang.language} - {lang.proficiency}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {mentor?.graduationYear && (
-                  <div className="mb-3">
-                    <button
-                      className="btn btn-link text-decoration-none p-0 w-100 text-start"
-                      onClick={() => toggleSection('education')}
-                    >
-                      <strong>Education</strong>
-                      <i className={`bi bi-chevron-${expandedSections.education ? 'up' : 'down'} float-end`}></i>
-                    </button>
-                    {expandedSections.education && (
-                      <div className="mt-2 small text-muted">
-                        {mentor.degree && <div>{mentor.degree}</div>}
-                        {mentor.graduationYear && <div>Graduated: {mentor.graduationYear}</div>}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {mentor?.experience && mentor.experience.length > 0 && (
-                  <div className="mb-3">
-                    <button
-                      className="btn btn-link text-decoration-none p-0 w-100 text-start"
-                      onClick={() => toggleSection('experience')}
-                    >
-                      <strong>Work Experience</strong>
-                      <i className={`bi bi-chevron-${expandedSections.experience ? 'up' : 'down'} float-end`}></i>
-                    </button>
-                    {expandedSections.experience && (
-                      <div className="mt-2">
-                        {mentor.experience.map((exp, idx) => (
-                          <div key={idx} className="small mb-2">
-                            <strong>{exp.title}</strong> @ {exp.company}
-                            {exp.duration && <div className="text-muted">{exp.duration}</div>}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Main Content */}
-          <div className="col-md-8">
-            {/* Owner Management Banner */}
-            {isOwner && (
-              <div className="alert alert-info mb-4" style={{ borderRadius: '12px', border: '2px solid #007bff' }}>
-                <div className="d-flex justify-content-between align-items-center">
-                  <div>
-                    <h5 className="mb-1">
-                      <i className="bi bi-gear-fill"></i> Manage Your Mentor Profile
-                    </h5>
-                    <p className="mb-0">Edit your profile, add resources and services, and manage your mentorship offerings.</p>
-                  </div>
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => setShowEditProfileModal(true)}
-                  >
-                    <i className="bi bi-pencil-square"></i> Edit Profile
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Available Services Section */}
-            <div className="card shadow-sm mb-4" style={{ borderRadius: '12px' }}>
-              <div className="card-body">
-                <div className="d-flex justify-content-between align-items-center mb-3">
-                  <div>
-                    <h4 className="mb-1">Available Services</h4>
-                    <p className="text-muted small mb-0">Discover our mentorship offerings designed for your success.</p>
-                  </div>
-                  {isOwner && (
-                    <button
-                      className="btn btn-primary"
-                      onClick={() => {
-                        setEditingResource(null);
-                        setResourceForm({
-                          title: '',
-                          description: '',
-                          type: 'resource',
-                          fileUrl: '',
-                          price: 0,
-                          duration: 30,
-                          isFree: false,
-                          isBestSeller: false
-                        });
-                        setShowResourceModal(true);
+                    <span 
+                      className="badge bg-success" 
+                      style={{ 
+                        position: 'absolute',
+                        bottom: '0',
+                        right: 'calc(50% - 60px + 10px)',
+                        fontSize: '0.7rem',
+                        padding: '3px 8px',
+                        borderRadius: '10px',
+                        border: '2px solid white'
                       }}
                     >
-                      <i className="bi bi-plus-circle"></i> Add Resource/Service
-                    </button>
+                      Available
+                    </span>
                   )}
                 </div>
-                
-                {/* Tabs */}
-                <ul className="nav nav-tabs mb-3">
-                  <li className="nav-item">
+
+                {/* Name and Rating */}
+                <div className="text-center mb-3">
+                  <h5 className="mb-2" style={{ fontWeight: '700', fontSize: '1.3rem', color: '#333' }}>{mentor?.name}</h5>
+                  <div className="d-flex align-items-center justify-content-center gap-2 mb-2">
+                    <span className="fw-bold" style={{ fontSize: '1.1rem', color: '#333' }}>{rating.toFixed(1)}</span>
+                    <div>
+                      {[...Array(5)].map((_, i) => (
+                        <i 
+                          key={i} 
+                          className={`bi bi-star${i < Math.floor(rating) ? '-fill' : ''} text-warning`}
+                          style={{ fontSize: '1rem' }}
+                        ></i>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                  {/* Professional Summary/Achievements */}
+                  {achievements.length > 0 && (
+                    <div className="mb-4" style={{ fontSize: '0.9rem', lineHeight: '1.8', textAlign: 'left' }}>
+                      {achievements.map((achievement, idx) => (
+                        <div key={idx} className="text-muted mb-1" style={{ marginBottom: '6px', color: '#666' }}>
+                          {achievement}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Social Links */}
+                  <div className="d-flex justify-content-center gap-2 mb-4">
+                    {mentor?.linkedinUrl && (
+                      <a href={mentor.linkedinUrl} target="_blank" rel="noopener noreferrer" 
+                         className="btn btn-outline-primary btn-sm" style={{ borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                        <i className="bi bi-linkedin"></i>
+                      </a>
+                    )}
+                    {mentor?.instagramUrl && (
+                      <a href={mentor.instagramUrl} target="_blank" rel="noopener noreferrer" 
+                         className="btn btn-outline-danger btn-sm" style={{ borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                        <i className="bi bi-instagram"></i>
+                      </a>
+                    )}
+                    <button className="btn btn-outline-secondary btn-sm" style={{ borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                      <i className="bi bi-share-fill"></i>
+                    </button>
+                  </div>
+
+                  {/* Expandable Sections */}
+                  <div style={{ borderTop: '1px solid #e0e0e0', paddingTop: '20px' }}>
+                    {/* About */}
+                    {mentorship.about && (
+                      <div className="mb-3">
+                        <button
+                          className="btn btn-link text-decoration-none p-0 w-100 text-start d-flex justify-content-between align-items-center"
+                          onClick={() => toggleSection('about')}
+                          style={{ color: '#333', fontWeight: '500' }}
+                        >
+                          <span>About</span>
+                          <i className={`bi bi-chevron-${expandedSections.about ? 'up' : 'down'}`}></i>
+                        </button>
+                        {expandedSections.about && (
+                          <p className="text-muted small mt-2" style={{ lineHeight: '1.6' }}>{mentorship.about}</p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Topics */}
+                    {mentorship.topics && mentorship.topics.length > 0 && (
+                      <div className="mb-3">
+                        <button
+                          className="btn btn-link text-decoration-none p-0 w-100 text-start d-flex justify-content-between align-items-center"
+                          onClick={() => toggleSection('topics')}
+                          style={{ color: '#333', fontWeight: '500' }}
+                        >
+                          <span>Topics</span>
+                          <i className={`bi bi-chevron-${expandedSections.topics ? 'up' : 'down'}`}></i>
+                        </button>
+                        {expandedSections.topics && (
+                          <div className="mt-2">
+                            {mentorship.topics.map((topic, idx) => (
+                              <span key={idx} className="badge bg-secondary me-1 mb-1" style={{ fontSize: '0.85rem', padding: '6px 12px' }}>{topic}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Skills */}
+                    {mentorship.skills && mentorship.skills.length > 0 && (
+                      <div className="mb-3">
+                        <button
+                          className="btn btn-link text-decoration-none p-0 w-100 text-start d-flex justify-content-between align-items-center"
+                          onClick={() => toggleSection('skills')}
+                          style={{ color: '#333', fontWeight: '500' }}
+                        >
+                          <span>Skills</span>
+                          <i className={`bi bi-chevron-${expandedSections.skills ? 'up' : 'down'}`}></i>
+                        </button>
+                        {expandedSections.skills && (
+                          <div className="mt-2">
+                            {mentorship.skills.map((skill, idx) => (
+                              <span key={idx} className="badge bg-primary me-1 mb-1" style={{ fontSize: '0.85rem', padding: '6px 12px' }}>{skill}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Fluent In */}
+                    {mentorship.fluentIn && mentorship.fluentIn.length > 0 && (
+                      <div className="mb-3">
+                        <button
+                          className="btn btn-link text-decoration-none p-0 w-100 text-start d-flex justify-content-between align-items-center"
+                          onClick={() => toggleSection('languages')}
+                          style={{ color: '#333', fontWeight: '500' }}
+                        >
+                          <span>Fluent in</span>
+                          <i className={`bi bi-chevron-${expandedSections.languages ? 'up' : 'down'}`}></i>
+                        </button>
+                        {expandedSections.languages && (
+                          <div className="mt-2">
+                            {mentorship.fluentIn.map((lang, idx) => (
+                              <div key={idx} className="small text-muted mb-1">
+                                {lang.language} - {lang.proficiency}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Education */}
+                    {(mentor?.degree || mentor?.graduationYear || mentor?.college) && (
+                      <div className="mb-3">
+                        <button
+                          className="btn btn-link text-decoration-none p-0 w-100 text-start d-flex justify-content-between align-items-center"
+                          onClick={() => toggleSection('education')}
+                          style={{ color: '#333', fontWeight: '500' }}
+                        >
+                          <span>Education</span>
+                          <i className={`bi bi-chevron-${expandedSections.education ? 'up' : 'down'}`}></i>
+                        </button>
+                        {expandedSections.education && (
+                          <div className="mt-2 small text-muted">
+                            {mentor.degree && <div>{mentor.degree}</div>}
+                            {mentor.college && <div>{mentor.college}</div>}
+                            {mentor.graduationYear && <div>Graduated: {mentor.graduationYear}</div>}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Work Experience */}
+                    {mentor?.experience && mentor.experience.length > 0 && (
+                      <div className="mb-3">
+                        <button
+                          className="btn btn-link text-decoration-none p-0 w-100 text-start d-flex justify-content-between align-items-center"
+                          onClick={() => toggleSection('experience')}
+                          style={{ color: '#333', fontWeight: '500' }}
+                        >
+                          <span>Work Experience</span>
+                          <i className={`bi bi-chevron-${expandedSections.experience ? 'up' : 'down'}`}></i>
+                        </button>
+                        {expandedSections.experience && (
+                          <div className="mt-2">
+                            {mentor.experience.map((exp, idx) => (
+                              <div key={idx} className="small mb-3">
+                                <strong>{exp.title}</strong> @ {exp.company}
+                                {exp.duration && <div className="text-muted">{exp.duration}</div>}
+                                {exp.description && <div className="text-muted mt-1" style={{ fontSize: '0.85rem' }}>{exp.description}</div>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Action Buttons */}
+                    <div className="mt-4 pt-3" style={{ borderTop: '1px solid #e0e0e0' }}>
+                      {isOwner ? (
+                        viewMode === 'public' ? (
+                          <>
+                            <button
+                              className="btn btn-primary w-100 mb-2"
+                              onClick={() => setViewMode('edit')}
+                              style={{ borderRadius: '8px', padding: '10px' }}
+                            >
+                              <i className="bi bi-pencil"></i> Manage Profile
+                            </button>
+                            <button
+                              className="btn btn-outline-secondary w-100"
+                              onClick={() => {
+                                // Open in new tab with same URL (public view)
+                                const publicUrl = window.location.href;
+                                window.open(publicUrl, '_blank');
+                              }}
+                              style={{ borderRadius: '8px', padding: '10px' }}
+                            >
+                              <i className="bi bi-eye"></i> View Public Profile
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            className="btn btn-outline-primary w-100"
+                            onClick={() => {
+                              setViewMode('public');
+                              setShowEditProfileModal(true);
+                            }}
+                            style={{ borderRadius: '8px', padding: '10px' }}
+                          >
+                            <i className="bi bi-pencil"></i> Edit Profile Details
+                          </button>
+                        )
+                      ) : (
+                        // Request Mentorship Button for non-owners (students)
+                        user?.role === 'student' && (
+                          <button
+                            className="btn btn-primary w-100"
+                            onClick={handleRequestMentorship}
+                            disabled={requestingMentorship || hasRequested || mentorship.status === 'full'}
+                            style={{ 
+                              borderRadius: '8px', 
+                              padding: '10px',
+                              fontWeight: '600',
+                              opacity: hasRequested || mentorship.status === 'full' ? 0.6 : 1
+                            }}
+                          >
+                            {requestingMentorship ? (
+                              <>
+                                <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                                Submitting...
+                              </>
+                            ) : hasRequested ? (
+                              <>
+                                <i className="bi bi-check-circle me-2"></i>
+                                Request Sent
+                              </>
+                            ) : mentorship.status === 'full' ? (
+                              <>
+                                <i className="bi bi-x-circle me-2"></i>
+                                Mentorship Full
+                              </>
+                            ) : (
+                              <>
+                                <i className="bi bi-person-plus me-2"></i>
+                                Request Mentorship
+                              </>
+                            )}
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Main Content */}
+            <div className="col-lg-8">
+              {/* Available Services Section */}
+              <div className="card shadow-sm mb-4 border-0" style={{ borderRadius: '16px' }}>
+                <div className="card-body p-4">
+                  <div className="d-flex justify-content-between align-items-center mb-3">
+                    <div>
+                      <h4 className="mb-1" style={{ fontWeight: '700', fontSize: '1.5rem' }}>Available Services</h4>
+                      <p className="text-muted small mb-0">Discover our mentorship offerings designed for your success.</p>
+                    </div>
+                    {isOwner && viewMode === 'edit' && (
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => {
+                          setEditingResource(null);
+                          setResourceForm({
+                            title: '',
+                            description: '',
+                            type: 'resource',
+                            fileUrl: '',
+                            price: 0,
+                            duration: 30,
+                            isFree: false,
+                            isBestSeller: false
+                          });
+                          setShowResourceModal(true);
+                        }}
+                        style={{ borderRadius: '20px', padding: '8px 20px' }}
+                      >
+                        <i className="bi bi-plus-circle"></i> Add Resource/Service
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Filter Tabs */}
+                  <div className="d-flex gap-2 mb-4">
                     <button 
-                      className={`nav-link ${activeTab === 'all' ? 'active' : ''}`}
+                      className={`btn ${activeTab === 'all' ? 'btn-primary' : 'btn-outline-secondary'}`}
                       onClick={() => setActiveTab('all')}
+                      style={{ 
+                        borderRadius: '20px', 
+                        padding: '8px 20px',
+                        fontWeight: activeTab === 'all' ? '600' : 'normal',
+                        fontSize: '0.9rem'
+                      }}
                     >
                       All
                     </button>
-                  </li>
-                  <li className="nav-item">
                     <button 
-                      className={`nav-link ${activeTab === '1:1_call' ? 'active' : ''}`}
+                      className={`btn ${activeTab === '1:1_call' ? 'btn-primary' : 'btn-outline-secondary'}`}
                       onClick={() => setActiveTab('1:1_call')}
+                      style={{ 
+                        borderRadius: '20px', 
+                        padding: '8px 20px',
+                        fontWeight: activeTab === '1:1_call' ? '600' : 'normal',
+                        fontSize: '0.9rem'
+                      }}
                     >
                       1:1 Call
                     </button>
-                  </li>
-                  <li className="nav-item">
                     <button 
-                      className={`nav-link ${activeTab === 'resource' ? 'active' : ''}`}
+                      className={`btn ${activeTab === 'resource' ? 'btn-primary' : 'btn-outline-secondary'}`}
                       onClick={() => setActiveTab('resource')}
+                      style={{ 
+                        borderRadius: '20px', 
+                        padding: '8px 20px',
+                        fontWeight: activeTab === 'resource' ? '600' : 'normal',
+                        fontSize: '0.9rem'
+                      }}
                     >
                       Resources
                     </button>
-                  </li>
-                </ul>
+                  </div>
 
-                {/* Resources Grid */}
-                <div className="row g-3">
-                  {filteredResources.map((resource, idx) => (
-                    <div className="col-md-6" key={idx}>
-                      <div className="card h-100" style={{ borderRadius: '8px' }}>
-                        <div className="card-body">
-                          {resource.isBestSeller && (
-                            <span className="badge bg-warning mb-2">Best Seller</span>
-                          )}
-                          <h6 className="card-title">{resource.title}</h6>
-                          {resource.description && (
-                            <p className="text-muted small">{resource.description}</p>
-                          )}
-                          <div className="d-flex justify-content-between align-items-center">
-                            <div>
-                              {resource.type === '1:1_call' && (
-                                <span className="text-muted small">{resource.duration} Min</span>
-                              )}
-                              {resource.isFree ? (
-                                <span className="badge bg-success">Free</span>
-                              ) : (
-                                <span className="fw-bold">₹{resource.price}</span>
+                  {/* Resources Grid */}
+                  <div className="row g-3">
+                    {filteredResources.map((resource, idx) => (
+                      <div className="col-md-6" key={idx}>
+                        <div className="card h-100 border-0 shadow-sm" style={{ 
+                          borderRadius: '12px', 
+                          transition: 'transform 0.2s, box-shadow 0.2s',
+                          position: 'relative'
+                        }}
+                             onMouseEnter={(e) => {
+                               e.currentTarget.style.transform = 'translateY(-4px)';
+                               e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+                             }}
+                             onMouseLeave={(e) => {
+                               e.currentTarget.style.transform = 'translateY(0)';
+                               e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+                             }}>
+                          <div className="card-body p-4" style={{ position: 'relative' }}>
+                            {/* Resource Type Tag */}
+                            <span 
+                              className="badge"
+                              style={{
+                                position: 'absolute',
+                                top: '12px',
+                                left: '12px',
+                                fontSize: '0.75rem',
+                                padding: '4px 12px',
+                                borderRadius: '12px',
+                                fontWeight: '600',
+                                backgroundColor: resource.type === 'resource' ? '#fd7e14' : '#667eea',
+                                color: 'white'
+                              }}
+                            >
+                              {resource.type === 'resource' ? 'Resource' : '1:1 Call'}
+                            </span>
+                            
+                            {resource.isBestSeller && (
+                              <span 
+                                className="badge"
+                                style={{
+                                  position: 'absolute',
+                                  top: '12px',
+                                  right: '12px',
+                                  fontSize: '0.75rem',
+                                  padding: '4px 12px',
+                                  borderRadius: '12px',
+                                  fontWeight: '600',
+                                  backgroundColor: '#fd7e14',
+                                  color: 'white'
+                                }}
+                              >
+                                Best Seller
+                              </span>
+                            )}
+
+                            <div className="d-flex justify-content-between align-items-start mb-3" style={{ marginTop: '28px' }}>
+                              <div className="flex-grow-1">
+                                <h6 className="card-title mb-2" style={{ fontWeight: '600', fontSize: '1rem', color: '#333' }}>
+                                  {resource.title}
+                                </h6>
+                                {resource.description && (
+                                  <p className="text-muted small mb-2" style={{ fontSize: '0.85rem', lineHeight: '1.5' }}>
+                                    {resource.description}
+                                  </p>
+                                )}
+                                {resource.type === '1:1_call' && (
+                                  <div className="d-flex align-items-center gap-1 mb-2" style={{ fontSize: '0.85rem', color: '#666' }}>
+                                    <i className="bi bi-clock"></i>
+                                    <span>{resource.duration} Min</span>
+                                  </div>
+                                )}
+                              </div>
+                              {isOwner && viewMode === 'edit' && (
+                                <div className="btn-group btn-group-sm">
+                                  <button
+                                    className="btn btn-outline-primary"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingResource(resource);
+                                      setResourceForm({
+                                        title: resource.title,
+                                        description: resource.description || '',
+                                        type: resource.type,
+                                        fileUrl: resource.fileUrl || '',
+                                        price: resource.price || 0,
+                                        duration: resource.duration || 30,
+                                        isFree: resource.isFree || false,
+                                        isBestSeller: resource.isBestSeller || false
+                                      });
+                                      setShowEditModal(true);
+                                    }}
+                                  >
+                                    <i className="bi bi-pencil"></i>
+                                  </button>
+                                  <button
+                                    className="btn btn-outline-danger"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteResource(resource._id);
+                                    }}
+                                  >
+                                    <i className="bi bi-trash"></i>
+                                  </button>
+                                </div>
                               )}
                             </div>
-                            {isOwner && (
-                              <div className="btn-group btn-group-sm">
-                                <button
-                                  className="btn btn-outline-primary"
-                                  onClick={() => {
-                                    setEditingResource(resource);
-                                    setResourceForm({
-                                      title: resource.title,
-                                      description: resource.description || '',
-                                      type: resource.type,
-                                      fileUrl: resource.fileUrl || '',
-                                      price: resource.price || 0,
-                                      duration: resource.duration || 30,
-                                      isFree: resource.isFree || false,
-                                      isBestSeller: resource.isBestSeller || false
-                                    });
-                                    setShowEditModal(true);
+                            <div className="d-flex justify-content-between align-items-center mt-3">
+                              <div>
+                                {resource.isFree ? (
+                                  <span className="badge bg-success" style={{ fontSize: '0.85rem', padding: '6px 12px' }}>Free</span>
+                                ) : (
+                                  <div>
+                                    <span className="fw-bold" style={{ color: '#667eea', fontSize: '1.1rem' }}>₹{resource.price}</span>
+                                    {resource.type === '1:1_call' && resource.price > 199 && (
+                                      <span className="text-muted text-decoration-line-through ms-2" style={{ fontSize: '0.9rem' }}>
+                                        ₹{Math.floor(resource.price * 1.5)}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                              {(!isOwner || viewMode === 'public') && (
+                                <button 
+                                  className="btn btn-primary btn-sm"
+                                  style={{ 
+                                    borderRadius: '20px', 
+                                    padding: '6px 20px',
+                                    fontSize: '0.9rem',
+                                    fontWeight: '600'
                                   }}
                                 >
-                                  <i className="bi bi-pencil"></i>
+                                  {resource.isFree ? 'Download Free' : resource.type === '1:1_call' ? 'Book Now' : `Purchase ₹${resource.price}`}
                                 </button>
-                                <button
-                                  className="btn btn-outline-danger"
-                                  onClick={() => handleDeleteResource(resource._id)}
-                                >
-                                  <i className="bi bi-trash"></i>
-                                </button>
-                              </div>
-                            )}
+                              )}
+                            </div>
                           </div>
-                          {!isOwner && (
-                            <button className="btn btn-primary btn-sm w-100 mt-2">
-                              {resource.isFree ? 'Download Free' : resource.type === '1:1_call' ? 'Book Now' : 'Purchase'}
-                            </button>
-                          )}
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
 
-                {filteredResources.length === 0 && (
-                  <div className="text-center text-muted py-4">
-                    {isOwner ? (
-                      <div>
-                        <i className="bi bi-inbox" style={{ fontSize: '3rem', opacity: 0.3 }}></i>
-                        <p className="mt-3">No resources or services available yet.</p>
-                        <button
-                          className="btn btn-primary"
-                          onClick={() => {
-                            setEditingResource(null);
-                            setResourceForm({
-                              title: '',
-                              description: '',
-                              type: 'resource',
-                              fileUrl: '',
-                              price: 0,
-                              duration: 30,
-                              isFree: false,
-                              isBestSeller: false
-                            });
-                            setShowResourceModal(true);
-                          }}
-                        >
-                          <i className="bi bi-plus-circle"></i> Add Your First Resource/Service
-                        </button>
-                      </div>
-                    ) : (
-                      'No resources available'
+                  {filteredResources.length === 0 && (
+                    <div className="text-center text-muted py-5">
+                      {isOwner ? (
+                        <div>
+                          <i className="bi bi-inbox" style={{ fontSize: '3rem', opacity: 0.3 }}></i>
+                          <p className="mt-3">No resources or services available yet.</p>
+                          <button
+                            className="btn btn-primary"
+                            onClick={() => {
+                              setEditingResource(null);
+                              setResourceForm({
+                                title: '',
+                                description: '',
+                                type: 'resource',
+                                fileUrl: '',
+                                price: 0,
+                                duration: 30,
+                                isFree: false,
+                                isBestSeller: false
+                              });
+                              setShowResourceModal(true);
+                            }}
+                          >
+                            <i className="bi bi-plus-circle"></i> Add Your First Resource/Service
+                          </button>
+                        </div>
+                      ) : (
+                        'No resources available'
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Reviews Section */}
+              <div className="card shadow-sm border-0" style={{ borderRadius: '16px' }}>
+                <div className="card-body p-4">
+                  <div className="d-flex justify-content-between align-items-center mb-4">
+                    <h4 className="mb-0" style={{ fontWeight: '700', fontSize: '1.5rem' }}>Reviews</h4>
+                    {user && !isOwner && (
+                      <>
+                        {canWriteReview() ? (
+                          <button
+                            className="btn btn-primary"
+                            onClick={() => setShowReviewModal(true)}
+                            style={{ borderRadius: '8px', padding: '8px 20px', fontWeight: '600' }}
+                          >
+                            <i className="bi bi-pencil me-2"></i>Write Review
+                          </button>
+                        ) : (
+                          <div className="text-muted small" style={{ fontSize: '0.9rem' }}>
+                            <i className="bi bi-check-circle me-2"></i>
+                            You have already reviewed this mentor
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
-                )}
-              </div>
-            </div>
-
-            {/* Reviews Section */}
-            <div className="card shadow-sm" style={{ borderRadius: '12px' }}>
-              <div className="card-body">
-                <h4 className="mb-3">Reviews</h4>
-                <div className="mb-4">
-                  <div className="d-flex align-items-center gap-3">
-                    <div className="display-4 fw-bold">{rating.toFixed(1)}</div>
-                    <div>
-                      <div className="mb-1">
-                        {[...Array(5)].map((_, i) => (
-                          <i 
-                            key={i} 
-                            className={`bi bi-star${i < Math.floor(rating) ? '-fill' : ''} text-warning`}
-                          ></i>
-                        ))}
-                      </div>
-                      <div className="text-muted">Average Rating ({totalReviews} Reviews)</div>
+                  
+                  {/* Overall Rating Display */}
+                  <div className="mb-5 text-center" style={{ 
+                    background: '#f8f9fa',
+                    borderRadius: '12px',
+                    padding: '30px'
+                  }}>
+                    <div style={{ fontSize: '4rem', fontWeight: '700', color: '#667eea', marginBottom: '16px' }}>
+                      {rating > 0 ? rating.toFixed(1) : '0.0'}
+                    </div>
+                    <div className="mb-2">
+                      {[...Array(5)].map((_, i) => (
+                        <i 
+                          key={i} 
+                          className={`bi bi-star${i < Math.floor(rating) ? '-fill' : i < rating ? '-half' : ''} text-warning`}
+                          style={{ fontSize: '1.5rem' }}
+                        ></i>
+                      ))}
+                    </div>
+                    <div className="text-muted" style={{ fontSize: '1rem' }}>
+                      Average Rating ({totalReviews} {totalReviews === 1 ? 'Review' : 'Reviews'})
                     </div>
                   </div>
-                </div>
 
-                <div className="reviews-list">
-                  {mentorship.reviews && mentorship.reviews.length > 0 ? (
-                    mentorship.reviews.map((review, idx) => (
-                      <div key={idx} className="border-bottom pb-3 mb-3">
-                        <div className="d-flex justify-content-between align-items-start mb-2">
-                          <div>
-                            <strong>{review.student?.name || 'Anonymous'}</strong>
-                            <div className="text-muted small">{new Date(review.createdAt).toLocaleDateString()}</div>
-                          </div>
-                          <div>
-                            <span className="fw-bold">{review.rating}.0</span>
-                            <i className="bi bi-star-fill text-warning ms-1"></i>
-                          </div>
-                        </div>
-                        {review.comment && (
-                          <p className="mb-0">{review.comment}</p>
-                        )}
+                  {/* Individual Reviews */}
+                  <div className="reviews-list">
+                    {mentorship.reviews && mentorship.reviews.length > 0 ? (
+                      mentorship.reviews
+                        .slice() // Create a copy to avoid mutating the original array
+                        .sort((a, b) => {
+                          const dateA = new Date(a.createdAt || a.createdAt || 0);
+                          const dateB = new Date(b.createdAt || b.createdAt || 0);
+                          return dateB.getTime() - dateA.getTime(); // Sort newest first
+                        })
+                        .map((review, idx, sortedReviews) => {
+                          // Use a unique key based on review ID or index + student ID
+                          const reviewKey = review._id || `${review.student?._id || review.student || idx}_${review.createdAt || idx}`;
+                          
+                          return (
+                            <div key={reviewKey} className="border-bottom pb-4 mb-4" style={{ 
+                              borderColor: idx < sortedReviews.length - 1 ? '#e0e0e0' : 'transparent',
+                              animation: 'fadeIn 0.5s ease-in'
+                            }}>
+                              <div className="d-flex justify-content-between align-items-start mb-2">
+                                <div className="d-flex align-items-center gap-3">
+                                  <img
+                                    src={review.student?.profilePicture || `https://ui-avatars.com/api/?name=${encodeURIComponent(review.student?.name || 'A')}&size=50&background=667eea&color=fff`}
+                                    alt={review.student?.name || 'Reviewer'}
+                                    style={{
+                                      width: '50px',
+                                      height: '50px',
+                                      borderRadius: '50%',
+                                      objectFit: 'cover',
+                                      border: '2px solid #f0f0f0'
+                                    }}
+                                    onError={(e) => {
+                                      e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(review.student?.name || 'A')}&size=50&background=667eea&color=fff`;
+                                    }}
+                                  />
+                                  <div>
+                                    <strong style={{ fontSize: '1rem', color: '#333' }}>
+                                      {review.student?.name || 'Anonymous'}
+                                    </strong>
+                                    <div className="text-muted small">
+                                      {review.createdAt 
+                                        ? new Date(review.createdAt).toLocaleDateString('en-US', { 
+                                            month: 'short', 
+                                            day: 'numeric', 
+                                            year: 'numeric',
+                                            hour: '2-digit',
+                                            minute: '2-digit'
+                                          })
+                                        : 'Just now'
+                                      }
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="d-flex align-items-center gap-2">
+                                  <span className="badge bg-success" style={{ fontSize: '0.85rem', padding: '4px 10px' }}>
+                                    {review.rating}★
+                                  </span>
+                                  <div className="d-flex">
+                                    {[...Array(5)].map((_, i) => (
+                                      <i
+                                        key={i}
+                                        className={`bi bi-star${i < review.rating ? '-fill' : ''} text-warning`}
+                                        style={{ fontSize: '0.85rem' }}
+                                      ></i>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                              {review.comment && (
+                                <p className="mb-0 mt-2" style={{ lineHeight: '1.7', color: '#333', fontSize: '0.95rem' }}>
+                                  {review.comment}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })
+                    ) : (
+                      <div className="text-center text-muted py-5">
+                        <i className="bi bi-chat-left-text" style={{ fontSize: '3rem', opacity: 0.3 }}></i>
+                        <p className="mt-3">No reviews yet. Be the first to review this mentor!</p>
                       </div>
-                    ))
-                  ) : (
-                    <div className="text-center text-muted py-4">No reviews yet</div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -678,11 +1170,11 @@ const MentorProfile = () => {
 
         {/* Add Resource Modal */}
         {showResourceModal && (
-          <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} tabIndex="-1">
-            <div className="modal-dialog">
+          <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1050 }} tabIndex="-1">
+            <div className="modal-dialog modal-lg">
               <div className="modal-content">
                 <div className="modal-header">
-                  <h5 className="modal-title">Add Resource</h5>
+                  <h5 className="modal-title">Add Resource/Service</h5>
                   <button type="button" className="btn-close" onClick={() => setShowResourceModal(false)}></button>
                 </div>
                 <div className="modal-body">
@@ -692,6 +1184,7 @@ const MentorProfile = () => {
                       className="form-control"
                       value={resourceForm.title}
                       onChange={(e) => setResourceForm({ ...resourceForm, title: e.target.value })}
+                      placeholder="e.g., Resume Template!!"
                     />
                   </div>
                   <div className="mb-3">
@@ -701,12 +1194,13 @@ const MentorProfile = () => {
                       rows={3}
                       value={resourceForm.description}
                       onChange={(e) => setResourceForm({ ...resourceForm, description: e.target.value })}
+                      placeholder="Describe the resource or service..."
                     />
                   </div>
                   <div className="mb-3">
                     <label className="form-label">Type *</label>
                     <select
-                      className="form-control"
+                      className="form-select"
                       value={resourceForm.type}
                       onChange={(e) => setResourceForm({ ...resourceForm, type: e.target.value })}
                     >
@@ -784,11 +1278,11 @@ const MentorProfile = () => {
 
         {/* Edit Resource Modal */}
         {showEditModal && editingResource && (
-          <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} tabIndex="-1">
-            <div className="modal-dialog">
+          <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1050 }} tabIndex="-1">
+            <div className="modal-dialog modal-lg">
               <div className="modal-content">
                 <div className="modal-header">
-                  <h5 className="modal-title">Edit Resource</h5>
+                  <h5 className="modal-title">Edit Resource/Service</h5>
                   <button type="button" className="btn-close" onClick={() => {
                     setShowEditModal(false);
                     setEditingResource(null);
@@ -815,7 +1309,7 @@ const MentorProfile = () => {
                   <div className="mb-3">
                     <label className="form-label">Type *</label>
                     <select
-                      className="form-control"
+                      className="form-select"
                       value={resourceForm.type}
                       onChange={(e) => setResourceForm({ ...resourceForm, type: e.target.value })}
                     >
@@ -896,7 +1390,7 @@ const MentorProfile = () => {
 
         {/* Edit Profile Modal */}
         {showEditProfileModal && (
-          <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} tabIndex="-1">
+          <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1050 }} tabIndex="-1">
             <div className="modal-dialog modal-lg">
               <div className="modal-content">
                 <div className="modal-header">
@@ -1039,6 +1533,122 @@ const MentorProfile = () => {
                   </button>
                   <button type="button" className="btn btn-primary" onClick={handleEditProfile}>
                     Update Profile
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Write Review Modal */}
+        {showReviewModal && (
+          <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1050 }} tabIndex="-1">
+            <div className="modal-dialog modal-lg">
+              <div className="modal-content">
+                <div className="modal-header">
+                  <h5 className="modal-title">Write a Review</h5>
+                  <button 
+                    type="button" 
+                    className="btn-close" 
+                    onClick={() => {
+                      setShowReviewModal(false);
+                      setReviewForm({ rating: 0, comment: '' });
+                    }}
+                  ></button>
+                </div>
+                <div className="modal-body">
+                  <div className="mb-4">
+                    <label className="form-label" style={{ fontWeight: '600', marginBottom: '12px' }}>
+                      Rating <span className="text-danger">*</span>
+                    </label>
+                    <div className="d-flex align-items-center gap-2">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button
+                          key={star}
+                          type="button"
+                          className="btn p-0"
+                          onClick={() => setReviewForm({ ...reviewForm, rating: star })}
+                          style={{ 
+                            border: 'none', 
+                            background: 'transparent',
+                            fontSize: '2rem',
+                            cursor: 'pointer',
+                            lineHeight: 1
+                          }}
+                          onMouseEnter={(e) => {
+                            if (star <= reviewForm.rating) return;
+                            e.target.style.transform = 'scale(1.1)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.transform = 'scale(1)';
+                          }}
+                        >
+                          <i 
+                            className={`bi bi-star${star <= reviewForm.rating ? '-fill' : ''} text-warning`}
+                          ></i>
+                        </button>
+                      ))}
+                      {reviewForm.rating > 0 && (
+                        <span className="ms-2 text-muted" style={{ fontSize: '1rem' }}>
+                          {reviewForm.rating} {reviewForm.rating === 1 ? 'star' : 'stars'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mb-3">
+                    <label className="form-label" style={{ fontWeight: '600' }}>
+                      Your Review <span className="text-muted" style={{ fontSize: '0.85rem', fontWeight: 'normal' }}>(Optional)</span>
+                    </label>
+                    <textarea
+                      className="form-control"
+                      rows={6}
+                      value={reviewForm.comment}
+                      onChange={(e) => setReviewForm({ ...reviewForm, comment: e.target.value })}
+                      placeholder="Share your experience with this mentor. What did you learn? How did they help you? (Optional, but if provided, must be at least 10 characters)"
+                      style={{ fontSize: '14px' }}
+                    />
+                    <small className="text-muted">
+                      {reviewForm.comment.length} characters {reviewForm.comment.length > 0 && reviewForm.comment.length < 10 && <span className="text-danger">(minimum 10 if provided)</span>}
+                    </small>
+                  </div>
+
+                  {reviewForm.rating > 0 && (
+                    <div className="alert alert-info mb-0">
+                      <i className="bi bi-info-circle me-2"></i>
+                      Your review will be visible to everyone viewing this mentor's profile.
+                    </div>
+                  )}
+                </div>
+                <div className="modal-footer">
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary" 
+                    onClick={() => {
+                      setShowReviewModal(false);
+                      setReviewForm({ rating: 0, comment: '' });
+                    }}
+                    disabled={submittingReview}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleSubmitReview}
+                    disabled={submittingReview || !reviewForm.rating || (reviewForm.comment.trim().length > 0 && reviewForm.comment.trim().length < 10)}
+                  >
+                    {submittingReview ? (
+                      <>
+                        <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                        Submitting...
+                      </>
+                    ) : (
+                      <>
+                        <i className="bi bi-check-circle me-2"></i>
+                        Submit Review
+                      </>
+                    )}
                   </button>
                 </div>
               </div>

@@ -1,13 +1,19 @@
 import { useState, useRef, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useChat } from '../context/ChatContext';
 
 const Topbar = () => {
   const { user, logout } = useAuth();
+  const { unreadCounts, chatList } = useChat();
+  const navigate = useNavigate();
   const [openProfile, setOpenProfile] = useState(false);
   const [openNotif, setOpenNotif] = useState(false);
   const [openMsg, setOpenMsg] = useState(false);
   const profileRef = useRef(null);
+
+  // Calculate total unread messages
+  const totalUnread = Object.values(unreadCounts).reduce((sum, count) => sum + count, 0);
 
   const notifications = [
     { id: 1, title: 'New job posted', message: 'TechCorp added 3 roles.' },
@@ -27,8 +33,11 @@ const Topbar = () => {
 
   const handleLogout = () => logout();
 
-  // Close notification if opening message, vice versa
-  const openMessages = () => { setOpenNotif(false); setOpenMsg(true); };
+  // Navigate to messages page when clicking message icon
+  const openMessages = () => { 
+    setOpenNotif(false);
+    navigate('/messages');
+  };
   const openNotifications = () => { setOpenMsg(false); setOpenNotif(true); };
 
   return (
@@ -37,15 +46,44 @@ const Topbar = () => {
       <button className="btn btn-link text-dark me-2" onClick={openNotifications} aria-label="Notifications">
         <i className="bi bi-bell fs-5"></i>
       </button>
-      {/* Message Icon */}
-      <button className="btn btn-link text-dark me-2" onClick={openMessages} aria-label="Messages">
+      {/* Message Icon with Badge */}
+      <button 
+        className="btn btn-link text-dark me-2 position-relative" 
+        onClick={openMessages} 
+        aria-label="Messages"
+      >
         <i className="bi bi-chat-dots fs-5"></i>
+        {totalUnread > 0 && (
+          <span 
+            className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"
+            style={{ fontSize: '0.65rem', padding: '2px 5px', minWidth: '18px' }}
+          >
+            {totalUnread > 99 ? '99+' : totalUnread}
+          </span>
+        )}
       </button>
 
       {/* Profile Dropdown */}
       <div className="position-relative" ref={profileRef}>
-        <button className="btn btn-link text-dark d-flex align-items-center" onClick={() => setOpenProfile(!openProfile)} aria-label="Profile">
-          <i className="bi bi-person-circle fs-5"></i>
+        <button className="btn btn-link text-dark d-flex align-items-center p-0" onClick={() => setOpenProfile(!openProfile)} aria-label="Profile" style={{ borderRadius: '50%', overflow: 'hidden' }}>
+          {user?.profilePicture ? (
+            <img 
+              src={user.profilePicture} 
+              alt={user.name || 'Profile'} 
+              style={{ 
+                width: '32px', 
+                height: '32px', 
+                objectFit: 'cover', 
+                borderRadius: '50%',
+                border: '2px solid #dee2e6'
+              }}
+              onError={(e) => {
+                e.target.style.display = 'none';
+                e.target.nextSibling.style.display = 'block';
+              }}
+            />
+          ) : null}
+          <i className={`bi bi-person-circle fs-5 ${user?.profilePicture ? 'd-none' : ''}`}></i>
         </button>
         {openProfile && (
           <div className="dropdown-menu dropdown-menu-end show" style={{ right: 0 }}>

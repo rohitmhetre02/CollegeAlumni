@@ -7,6 +7,77 @@ import api from '../config/api';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
 
+const extractExperienceValue = (value) => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') {
+    if (Array.isArray(value)) return '';
+    if (value.value !== undefined) return value.value;
+    if (value.amount !== undefined) return value.amount;
+    if (value.years !== undefined) return value.years;
+    if (value.total !== undefined) return value.total;
+    return '';
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    const match = trimmed.match(/^(-?\d+(?:\.\d+)?)/);
+    return match ? match[1] : trimmed;
+  }
+  return value;
+};
+
+const extractExperienceUnit = (value) => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value.unit || value.units || value.label || 'years';
+  }
+  if (typeof value === 'string') {
+    const lowered = value.toLowerCase();
+    if (lowered.includes('year')) return 'years';
+    return 'years';
+  }
+  return value === '' ? '' : 'years';
+};
+
+const getExperienceDisplay = (primary, list) => {
+  const numeric = extractExperienceValue(primary);
+  if (numeric !== '' && numeric !== null && numeric !== undefined) {
+    const unit = extractExperienceUnit(primary) || 'years';
+    return `${numeric} ${unit}`.trim();
+  }
+  if (Array.isArray(list) && list.length) {
+    return `${list.length} recorded engagement${list.length > 1 ? 's' : ''}`;
+  }
+  return '';
+};
+
+const formatFlexibleText = (input) => {
+  if (input === null || input === undefined) return '';
+  if (typeof input === 'string' || typeof input === 'number' || typeof input === 'boolean') {
+    return String(input);
+  }
+  if (Array.isArray(input)) {
+    return input.map(item => formatFlexibleText(item)).filter(Boolean).join(', ');
+  }
+  if (typeof input === 'object') {
+    const numeric = input.value ?? input.amount ?? input.years ?? input.total ?? input.duration ?? undefined;
+    const unit = input.unit || input.units || input.label || input.text || '';
+    if (numeric !== undefined) {
+      const numericText = formatFlexibleText(numeric);
+      const unitText = unit ? formatFlexibleText(unit) : '';
+      return [numericText, unitText].filter(Boolean).join(' ').trim();
+    }
+    if (input.description !== undefined) {
+      return formatFlexibleText(input.description);
+    }
+    const flatValues = Object.values(input)
+      .map(value => (typeof value === 'object' ? formatFlexibleText(value) : formatFlexibleText(String(value))))
+      .filter(Boolean);
+    return flatValues.join(' ').trim();
+  }
+  return '';
+};
+
 const FacultyDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -56,6 +127,8 @@ const FacultyDetail = () => {
     );
   }
 
+  const experienceDisplay = getExperienceDisplay(faculty.workExperience, faculty.experience);
+
   return (
     <div className="d-flex">
       <Sidebar />
@@ -97,6 +170,26 @@ const FacultyDetail = () => {
                     <p>{faculty.department}</p>
                   </div>
                 </div>
+                <div className="row mb-3">
+                  <div className="col-md-6">
+                    <strong>Role:</strong>
+                    <p>{faculty.role ? faculty.role.charAt(0).toUpperCase() + faculty.role.slice(1) : 'Coordinator'}</p>
+                  </div>
+                  {faculty.staffId && (
+                    <div className="col-md-6">
+                      <strong>Faculty ID:</strong>
+                      <p>{faculty.staffId}</p>
+                    </div>
+                  )}
+                </div>
+                {experienceDisplay && (
+                  <div className="row mb-3">
+                    <div className="col-md-6">
+                      <strong>Total Experience:</strong>
+                      <p>{experienceDisplay}</p>
+                    </div>
+                  </div>
+                )}
                 {faculty.phone && (
                   <div className="row mb-3">
                     <div className="col-md-6">
@@ -109,6 +202,29 @@ const FacultyDetail = () => {
                   <div className="mb-3">
                     <strong>Bio:</strong>
                     <p>{faculty.bio}</p>
+                  </div>
+                )}
+                {Array.isArray(faculty.experience) && faculty.experience.length > 0 && (
+                  <div className="mb-3">
+                    <strong>Experience:</strong>
+                    <div className="mt-2">
+                      {faculty.experience.map((exp, idx) => {
+                        const titleText = formatFlexibleText(exp.title) || 'Role';
+                        const companyText = formatFlexibleText(exp.company);
+                        const durationText = formatFlexibleText(exp.duration);
+                        const descriptionText = formatFlexibleText(exp.description);
+                        return (
+                          <div key={idx} className="border rounded p-3 mb-2">
+                            <div className="fw-semibold">
+                              {titleText}
+                              {companyText && <span className="text-muted">@ {companyText}</span>}
+                            </div>
+                            {durationText && <div className="small text-muted mb-1">{durationText}</div>}
+                            {descriptionText && <div className="small">{descriptionText}</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
                 {(faculty.linkedinUrl || faculty.githubUrl) && (
@@ -138,5 +254,6 @@ const FacultyDetail = () => {
 };
 
 export default FacultyDetail;
+
 
 

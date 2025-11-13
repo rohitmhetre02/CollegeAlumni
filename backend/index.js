@@ -40,6 +40,8 @@ import departmentRoutes from './routes/departments.js';
 import facultyRoutes from './routes/faculty.js';
 import newsRoutes from './routes/news.js';
 import activityRoutes from './routes/activities.js';
+import galleryRoutes from './routes/gallery.js';
+import uploadRoutes from './routes/upload.js';
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -51,6 +53,8 @@ app.use('/api/departments', departmentRoutes);
 app.use('/api/faculty', facultyRoutes);
 app.use('/api/news', newsRoutes);
 app.use('/api/activities', activityRoutes);
+app.use('/api/gallery', galleryRoutes);
+app.use('/api/upload', uploadRoutes);
 
 const server = http.createServer(app);
 const io = new SocketIO(server, {
@@ -95,25 +99,60 @@ io.on('connection', (socket) => {
   });
 
   // Send message event
-  socket.on('sendMessage', async ({ to, content }) => {
-    // Find target user, enforce rules
-    const toUser = await User.findById(to);
-    if (!canSend(user, toUser)) return;
-    const roomId = getRoomId(user._id.toString(), toUser._id.toString());
-    const msg = await Message.create({
-      sender: user._id,
-      recipient: toUser._id,
-      content,
-      roomId
-    });
-    io.to(roomId).emit('newMessage', {
-      _id: msg._id,
-      sender: user._id,
-      recipient: toUser._id,
-      content: msg.content,
-      createdAt: msg.createdAt,
-      roomId
-    });
+  socket.on('sendMessage', async ({ to, content }, callback) => {
+    try {
+      // Validate input
+      if (!to || !content || !content.trim()) {
+        if (callback) callback({ error: 'Invalid message data' });
+        return;
+      }
+
+      // Find target user, enforce rules
+      const toUser = await User.findById(to);
+      if (!toUser) {
+        if (callback) callback({ error: 'Recipient not found' });
+        return;
+      }
+
+      if (!canSend(user, toUser)) {
+        if (callback) callback({ error: 'Not allowed to send message to this user' });
+        return;
+      }
+
+      const roomId = getRoomId(user._id.toString(), toUser._id.toString());
+      
+      // Create message in database
+      const msg = await Message.create({
+        sender: user._id,
+        recipient: toUser._id,
+        content: content.trim(),
+        roomId
+      });
+
+      // Populate sender info for frontend
+      await msg.populate('sender', 'name email role');
+      
+      // Emit to both users in the room
+      const messageData = {
+        _id: msg._id,
+        sender: user._id.toString(),
+        recipient: toUser._id.toString(),
+        content: msg.content,
+        createdAt: msg.createdAt,
+        roomId,
+        read: false
+      };
+
+      io.to(roomId).emit('newMessage', messageData);
+      
+      // Send callback confirmation
+      if (callback) callback({ success: true, message: messageData });
+      
+      console.log(`✅ Message sent from ${user._id} to ${toUser._id} in room ${roomId}`);
+    } catch (error) {
+      console.error('Error sending message:', error);
+      if (callback) callback({ error: 'Failed to send message' });
+    }
   });
 
   // Mark as read (optional: implement as needed)

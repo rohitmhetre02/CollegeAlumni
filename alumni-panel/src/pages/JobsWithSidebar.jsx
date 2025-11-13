@@ -7,6 +7,47 @@ import '../styles/sidebar.css';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
 
+const formatFlexibleText = (input) => {
+  if (input === null || input === undefined) return '';
+  if (typeof input === 'string' || typeof input === 'number' || typeof input === 'boolean') {
+    return String(input);
+  }
+  if (Array.isArray(input)) {
+    return input.map(item => formatFlexibleText(item)).filter(Boolean).join(', ');
+  }
+  if (typeof input === 'object') {
+    const numeric = input.value ?? input.amount ?? input.years ?? input.total ?? input.duration ?? undefined;
+    const unit = input.unit || input.units || input.label || input.text || '';
+    if (numeric !== undefined) {
+      const numericText = formatFlexibleText(numeric);
+      const unitText = unit ? formatFlexibleText(unit) : '';
+      return [numericText, unitText].filter(Boolean).join(' ').trim();
+    }
+    if (input.description !== undefined) {
+      return formatFlexibleText(input.description);
+    }
+    const flatValues = Object.values(input)
+      .map(value => (typeof value === 'object' ? formatFlexibleText(value) : formatFlexibleText(String(value))))
+      .filter(Boolean);
+    return flatValues.join(' ').trim();
+  }
+  return '';
+};
+
+const ensureText = (input, fallback = '') => {
+  const text = formatFlexibleText(input);
+  return text || fallback;
+};
+
+const normalizeSkills = (skills) => {
+  if (!Array.isArray(skills)) return [];
+  return skills
+    .map(skill => ensureText(skill))
+    .filter(Boolean)
+    .map(skill => skill.trim())
+    .filter(Boolean);
+};
+
 const JobsWithSidebar = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -33,13 +74,36 @@ const JobsWithSidebar = () => {
   const fetchJobs = async () => {
     try {
       const response = await api.get('/jobs');
-      const jobsData = (response.data || []).map(job => ({
-        ...job,
-        jobType: job.jobType || (job.type?.toLowerCase().includes('intern') ? 'Internship' : 'Job'),
-        skills: job.skills || job.expertise || [],
-        applications: Array.isArray(job.applications) ? job.applications : [],
-        applicationsCount: Array.isArray(job.applications) ? job.applications.length : 0
-      }));
+      const jobsData = (response.data || []).map(job => {
+        const jobTypeRaw = job.jobType || job.type;
+        const jobTypeText = ensureText(jobTypeRaw);
+        const titleText = ensureText(job.title, 'Untitled Role');
+        const companyText = ensureText(job.company, 'Unknown Company');
+        const locationText = ensureText(job.location, 'Not specified');
+        const experienceText = ensureText(job.experience || job.requiredExperience || job.requirements?.experience, '2-5 years');
+        const descriptionText = ensureText(job.description, 'No description provided.');
+        const typeText = ensureText(job.type, 'Full-time');
+        const tagText = ensureText(job.tag);
+        const tagColorText = ensureText(job.tagColor, 'primary');
+        const applicationsArray = Array.isArray(job.applications) ? job.applications : [];
+
+        return {
+          ...job,
+          jobType: jobTypeText || (typeof job.type === 'string' && job.type.toLowerCase().includes('intern') ? 'Internship' : 'Job'),
+          titleText,
+          companyText,
+          companySlug: companyText ? companyText.toLowerCase().replace(/[^a-z0-9]+/g, '') : 'company',
+          locationText,
+          experienceText,
+          descriptionText,
+          typeText,
+          tag: tagText,
+          tagColor: tagColorText || 'primary',
+          skills: normalizeSkills(job.skills || job.expertise || []),
+          applications: applicationsArray,
+          applicationsCount: applicationsArray.length,
+        };
+      });
       setJobs(jobsData);
       setLoading(false);
     } catch (error) {
@@ -223,27 +287,27 @@ const JobsWithSidebar = () => {
 
                     {/* Job Title */}
                     <h4 className="card-title mb-2" style={{ fontSize: '20px', fontWeight: '700', color: '#333', lineHeight: '1.2' }}>
-                      {job.title}
+                      {job.titleText}
                     </h4>
 
                     {/* Company Name */}
                     <p className="mb-3" style={{ fontSize: '16px', color: '#1976D2', fontWeight: '500', marginBottom: '16px' }}>
-                      {job.company}
+                      {job.companyText}
                     </p>
 
                     {/* Job Details */}
                     <div className="mb-3" style={{ fontSize: '14px', color: '#666' }}>
                       <div className="mb-2 d-flex align-items-center">
                         <i className="bi bi-geo-alt me-2" style={{ fontSize: '14px', color: '#999' }}></i>
-                        <span>{job.location}</span>
+                        <span>{job.locationText}</span>
                       </div>
                       <div className="mb-2 d-flex align-items-center">
                         <i className="bi bi-clock me-2" style={{ fontSize: '14px', color: '#999' }}></i>
-                        <span>{job.experience || '2-5 years'}</span>
+                        <span>{job.experienceText}</span>
                       </div>
                       <div className="mb-2 d-flex align-items-center">
                         <i className="bi bi-briefcase me-2" style={{ fontSize: '14px', color: '#999' }}></i>
-                        <span>{job.type}</span>
+                        <span>{job.typeText}</span>
                       </div>
                       <div className="d-flex align-items-center">
                         <i className="bi bi-currency-rupee me-2" style={{ fontSize: '14px', color: '#999' }}></i>
@@ -253,7 +317,7 @@ const JobsWithSidebar = () => {
 
                     {/* Description */}
                     <p className="card-text mb-3" style={{ fontSize: '14px', color: '#666', lineHeight: '1.5' }}>
-                      {job.description}
+                      {job.descriptionText}
                     </p>
 
                     {/* Skills Tags */}
@@ -300,7 +364,7 @@ const JobsWithSidebar = () => {
                     <div className="d-flex gap-2">
                       <button
                         className="btn btn-outline-primary flex-fill"
-                        onClick={(e) => { e.stopPropagation(); window.location.href = `mailto:hr@${job.company.toLowerCase().replace(/\s+/g, '')}.com?subject=Application for ${job.title}`; }}
+                        onClick={(e) => { e.stopPropagation(); window.location.href = `mailto:hr@${job.companySlug || 'company'}.com?subject=Application for ${encodeURIComponent(job.titleText)}`; }}
                         style={{
                           borderRadius: '8px',
                           padding: '8px 16px',

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../config/api';
 import Sidebar from '../components/Sidebar';
@@ -8,28 +9,80 @@ import 'bootstrap-icons/font/bootstrap-icons.css';
 
 const MentorshipsList = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [mentors, setMentors] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isMentor, setIsMentor] = useState(false);
 
   useEffect(() => {
     fetchMentors();
+    checkIfMentor();
   }, []);
+
+  const checkIfMentor = async () => {
+    // Only check for alumni - admin and coordinator should not see "Become Mentor" button
+    if (user?.role === 'alumni') {
+      try {
+        const response = await api.get('/mentorships');
+        const userMentorships = (response.data || []).filter(m => 
+          m.mentor?._id === user?.id || m.mentor === user?.id
+        );
+        setIsMentor(userMentorships.length > 0);
+      } catch (error) {
+        console.error('Error checking mentor status:', error);
+      }
+    }
+  };
 
   const fetchMentors = async () => {
     try {
       const response = await api.get('/mentorships');
-      const mentorsData = (response.data || []).map(m => ({
-        _id: m._id,
-        name: m.mentor?.name || 'Unknown',
-        fullName: m.mentor?.name || 'Unknown',
-        position: m.mentor?.currentPosition || '',
-        company: m.mentor?.company || '',
-        education: m.mentor?.degree || m.mentor?.education || '',
-        rating: m.rating || 4.5,
-        profileImage: m.mentor?.profilePicture || `https://ui-avatars.com/api/?name=${encodeURIComponent(m.mentor?.name || 'Mentor')}&background=random&size=128`,
-        headerColor: ['#E3F2FD', '#F3E5F5', '#FCE4EC', '#E1F5FE', '#E8F5E9', '#FFF3E0'][Math.floor(Math.random() * 6)],
-        available: m.status === 'active'
-      }));
+      const allMentorships = response.data || [];
+      
+      const mentorsData = allMentorships
+        .map((m, idx) => {
+          // Extract mentor ID - handle both populated (object with _id) and unpopulated (just ID) cases
+          let mentorId = null;
+          
+          if (m.mentor) {
+            if (typeof m.mentor === 'object' && m.mentor._id) {
+              // Populated mentor object with _id
+              mentorId = typeof m.mentor._id === 'string' ? m.mentor._id : m.mentor._id.toString();
+            } else if (typeof m.mentor === 'object' && m.mentor.id) {
+              // Alternative ID field
+              mentorId = typeof m.mentor.id === 'string' ? m.mentor.id : m.mentor.id.toString();
+            } else if (typeof m.mentor === 'string') {
+              // Unpopulated - mentor is just the ID string
+              mentorId = m.mentor;
+            } else if (m.mentor.toString) {
+              // ObjectId or other object with toString method
+              mentorId = m.mentor.toString();
+            }
+          }
+          
+          // Skip if we couldn't extract a valid mentor ID
+          if (!mentorId) {
+            console.warn('Could not extract mentor ID for mentorship:', m._id);
+            return null;
+          }
+          
+          return {
+            _id: mentorId,
+            mentorshipId: m._id,
+            name: m.mentor?.name || 'Unknown',
+            fullName: m.mentor?.name || 'Unknown',
+            position: m.mentor?.currentPosition || '',
+            company: m.mentor?.company || '',
+            education: m.mentor?.degree || m.mentor?.education || '',
+            rating: m.rating || 4.5,
+            totalRatings: m.totalRatings || 0,
+            profileImage: m.mentor?.profilePicture || `https://ui-avatars.com/api/?name=${encodeURIComponent(m.mentor?.name || 'Mentor')}&background=random&size=128`,
+            headerColor: ['#E3F2FD', '#F3E5F5', '#FCE4EC', '#E1F5FE', '#E8F5E9', '#FFF3E0'][idx % 6],
+            available: m.isAvailable !== false && m.status === 'active'
+          };
+        })
+        .filter(mentor => mentor !== null); // Remove null entries
+      
       setMentors(mentorsData);
       setLoading(false);
     } catch (error) {
@@ -40,8 +93,39 @@ const MentorshipsList = () => {
   };
 
   const handleViewProfile = (mentorId) => {
-    // Navigate to profile or show details
-    console.log('View profile:', mentorId);
+    // Validate and ensure mentorId is a string
+    if (!mentorId) {
+      console.error('Cannot navigate: mentorId is undefined or null');
+      alert('Unable to view profile. Mentor ID is missing.');
+      return;
+    }
+    
+    let id;
+    if (typeof mentorId === 'string') {
+      id = mentorId.trim();
+    } else if (mentorId.toString) {
+      id = mentorId.toString().trim();
+    } else {
+      console.error('Invalid mentorId type:', typeof mentorId, mentorId);
+      alert('Unable to view profile. Invalid mentor ID format.');
+      return;
+    }
+    
+    if (!id || id === 'undefined' || id === 'null') {
+      console.error('Invalid mentor ID:', id);
+      alert('Unable to view profile. Invalid mentor ID.');
+      return;
+    }
+    
+    console.log('Navigating to mentor profile with ID:', id);
+    // Navigate based on user role
+    if (user?.role === 'admin') {
+      navigate(`/admin/mentor/${id}`);
+    } else if (user?.role === 'coordinator') {
+      navigate(`/coordinator/mentor/${id}`);
+    } else {
+      navigate(`/mentor/${id}`);
+    }
   };
 
   if (loading) {
@@ -64,9 +148,22 @@ const MentorshipsList = () => {
       <Sidebar />
       
       <div className="sidebar-main-content flex-grow-1 p-4">
-        <h2 className="mb-4">
-          <i className="bi bi-person-heart"></i> Mentorship Programs
-        </h2>
+        <div className="d-flex justify-content-between align-items-center mb-4">
+          <h2 className="mb-0">
+            <i className="bi bi-person-heart"></i> Mentorship Programs
+          </h2>
+          {user?.role === 'alumni' && !isMentor && (
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                // Navigate to mentor onboarding - open in new tab to alumni panel
+                window.open(`http://localhost:5173/mentor/onboarding`, '_blank');
+              }}
+            >
+              <i className="bi bi-plus-circle"></i> Become Mentor
+            </button>
+          )}
+        </div>
         
         <div className="row g-4" style={{ marginBottom: '20px' }}>
           {mentors.map((mentor, index) => (

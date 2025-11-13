@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../config/api';
+import Sidebar from '../components/Sidebar';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
+import '../styles/sidebar.css';
 
 const MentorOnboarding = () => {
   const { user } = useAuth();
@@ -188,8 +190,10 @@ const MentorOnboarding = () => {
   const progressPercentage = (currentStep / totalSteps) * 100;
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f5f5f5', padding: '20px' }}>
-      <div className="container" style={{ maxWidth: '900px' }}>
+    <div className="d-flex">
+      <Sidebar />
+      <div className="sidebar-main-content flex-grow-1" style={{ background: '#f5f5f5', padding: '20px' }}>
+        <div className="container" style={{ maxWidth: '900px' }}>
         {/* Step 1: Personal & Professional Details */}
         {currentStep === 1 && (
           <div className="card shadow-sm" style={{ borderRadius: '12px' }}>
@@ -648,6 +652,7 @@ const MentorOnboarding = () => {
             </div>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

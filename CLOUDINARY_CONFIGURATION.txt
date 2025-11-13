@@ -1,0 +1,59 @@
+================================================================================
+CLOUDINARY CONFIGURATION GUIDE
+================================================================================
+
+Please provide the following Cloudinary values:
+1. Cloud Name (e.g., dm8xyzabc)
+2. Upload Preset Name (e.g., alumni_portal_upload)
+
+================================================================================
+STEP 1: CREATE .env FILES
+================================================================================
+
+1. Create a file named ".env" in the "admin-panel" folder
+2. Create a file named ".env" in the "alumni-panel" folder
+
+================================================================================
+STEP 2: ADD THESE LINES TO admin-panel/.env
+================================================================================
+
+VITE_CLOUDINARY_CLOUD_NAME=YOUR_CLOUD_NAME_HERE
+VITE_CLOUDINARY_UPLOAD_PRESET=YOUR_UPLOAD_PRESET_HERE
+VITE_API_URL=http://localhost:5000/api
+
+================================================================================
+STEP 3: ADD THESE LINES TO alumni-panel/.env
+================================================================================
+
+VITE_CLOUDINARY_CLOUD_NAME=YOUR_CLOUD_NAME_HERE
+VITE_CLOUDINARY_UPLOAD_PRESET=YOUR_UPLOAD_PRESET_HERE
+VITE_API_URL=http://localhost:5000/api
+
+================================================================================
+STEP 4: REPLACE THE VALUES
+================================================================================
+
+Replace:
+- YOUR_CLOUD_NAME_HERE with your actual Cloud Name from Cloudinary
+- YOUR_UPLOAD_PRESET_HERE with your actual Upload Preset name
+
+================================================================================
+STEP 5: RESTART SERVERS
+================================================================================
+
+After adding the values, restart both development servers:
+- Stop the current servers (Ctrl+C)
+- Restart admin-panel: cd admin-panel && npm run dev
+- Restart alumni-panel: cd alumni-panel && npm run dev
+
+================================================================================
+WHERE THESE VALUES ARE USED
+================================================================================
+
+1. Profile Picture Upload (Admin Panel)
+2. Gallery Photo Upload (Both Panels)
+3. News Image Upload (Both Panels)
+4. Event Image Upload (Both Panels)
+
+================================================================================
+

@@ -26,7 +26,7 @@ import MentorDashboard from './pages/MentorDashboard';
 import MentorOnboarding from './pages/MentorOnboarding';
 import FacultyWithSidebar from './pages/FacultyWithSidebar';
 import NewsWithSidebar from './pages/NewsWithSidebar';
-import MyActivityWithSidebar from './pages/MyActivityWithSidebar';
+import MyActivityDashboard from './pages/MyActivityDashboard';
 import ActivityDetail from './pages/ActivityDetail';
 import StudentDetail from './pages/StudentDetail';
 import AlumniDetail from './pages/AlumniDetail';
@@ -37,6 +37,8 @@ import NewsDetail from './pages/NewsDetail';
 import Topbar from './components/Topbar';
 import Profile from './pages/Profile';
 import ChatDrawer from './components/ChatDrawer';
+import Gallery from './pages/Gallery';
+import Messages from './pages/Messages';
 
 // Protected Route Component
 const ProtectedRoute = ({ children, allowedRoles }) => {
@@ -77,7 +79,6 @@ function App() {
         <Router>
           {/* Topbar visible only when authenticated */}
           <TopbarWrapper />
-          <ChatDrawer />
           <Routes>
             {/* Public Routes */}
             <Route path="/" element={<Home />} />
@@ -171,7 +172,7 @@ function App() {
               path="/my-activity"
               element={
                 <ProtectedRoute>
-                  <MyActivityWithSidebar />
+                  <MyActivityDashboard />
                 </ProtectedRoute>
               }
             />
@@ -196,6 +197,22 @@ function App() {
               element={
                 <ProtectedRoute>
                   <MentorshipsWithSidebar />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/gallery"
+              element={
+                <ProtectedRoute>
+                  <Gallery />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/messages"
+              element={
+                <ProtectedRoute>
+                  <Messages />
                 </ProtectedRoute>
               }
             />

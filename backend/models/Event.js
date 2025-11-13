@@ -35,6 +35,13 @@ const eventSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
     },
+    name: String,
+    department: String,
+    role: String,
+    currentYear: String, // For students: FE, SE, TE, BE
+    graduationYear: Number, // For alumni
+    mobileNumber: String,
+    email: String,
     registeredAt: {
       type: Date,
       default: Date.now

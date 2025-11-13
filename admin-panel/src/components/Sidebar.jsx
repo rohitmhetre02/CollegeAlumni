@@ -24,7 +24,9 @@ const Sidebar = () => {
       { path: '/admin/jobs', icon: 'bi-briefcase', label: 'Job Opportunity' },
       { path: '/admin/mentorships', icon: 'bi-person-heart', label: 'Mentorship' },
       { path: '/admin/news', icon: 'bi-newspaper', label: 'News' },
-      { path: '/admin/events', icon: 'bi-calendar-event', label: 'Event' }
+      { path: '/admin/events', icon: 'bi-calendar-event', label: 'Event' },
+      { path: '/admin/gallery', icon: 'bi-images', label: 'Gallery' },
+      { path: '/admin/messages', icon: 'bi-chat-dots', label: 'Messages' }
     );
   }
 
@@ -39,7 +41,9 @@ const Sidebar = () => {
       { path: '/coordinator/jobs', icon: 'bi-briefcase', label: 'Job Opportunity' },
       { path: '/coordinator/mentorships', icon: 'bi-person-heart', label: 'Mentorship' },
       { path: '/coordinator/news', icon: 'bi-newspaper', label: 'News' },
-      { path: '/coordinator/events', icon: 'bi-calendar-event', label: 'Event' }
+      { path: '/coordinator/events', icon: 'bi-calendar-event', label: 'Event' },
+      { path: '/coordinator/gallery', icon: 'bi-images', label: 'Gallery' },
+      { path: '/coordinator/messages', icon: 'bi-chat-dots', label: 'Messages' }
     );
   }
 
